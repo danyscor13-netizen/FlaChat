@@ -1,0 +1,23 @@
+<html>
+    <head>
+        <title>FlaChat Mobile</title>
+    </head>
+    <style>
+        body {
+            background-color: RGB(0, 150, 150);
+            justify-content: center;
+            align-items: center;
+            display: Flex;
+        }
+    </style>
+    <body>
+        <h1>FlaChat Mobile</h1>
+        <p>Per favore metti il nome utente e codice stanza</p>
+        
+        <form action="/chat" method="POST">
+            <input type="text" id="username" name="username" placeholder="Nome utente">
+            <input type="number" id="room" name="room" placeholder="Codice stanza">
+            <button type="submit">Invia!</button>
+        </form>
+    </body>
+</html>
