@@ -31,4 +31,4 @@ def handle_messages(data):
     send({'username' : username, 'msg' : msg}, room=room)
     
 if __name__ == "__main__":
-    socketio.run(app, debug=True)
+    allow_unsafe_werkzewg.run(app, debug=True)
