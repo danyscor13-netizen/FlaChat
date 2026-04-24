@@ -13,7 +13,7 @@ welcomes = [
     " è entrato nella stanza!",
     ", spero che tu abbia portato la pizza!",
     " è appena atterrato!",
-    " stava facendo un'entrata segreta, ma fu colto di sprovvista! Salutatelo!"
+    " stava facendo un'entrata segreta, ma fu colto di sprovvista! Salutatelo!",
     ", sentiti libero di accomodarti!"
 ]
 
