@@ -1,6 +1,8 @@
 from flask import Flask, render_template, request
 from flask_socketio import SocketIO, join_room, send
 
+import os
+
 
 app = Flask(__name__)
 socketio = SocketIO(app)
