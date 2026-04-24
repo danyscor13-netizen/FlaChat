@@ -1,12 +1,21 @@
 from flask import Flask, render_template, request
 from flask_socketio import SocketIO, join_room, send
 
+from random import choice
+
 import os
 
 
 app = Flask(__name__)
 socketio = SocketIO(app)
 
+welcomes = [
+    " è entrato nella stanza!",
+    ", spero che tu abbia portato la pizza!",
+    " è appena atterrato!",
+    " stava facendo un'entrata segreta, ma fu colto di sprovvista! Salutatelo!"
+    ", sentiti libero di accomodarti!"
+]
 
 @app.route('/')
 def home():
@@ -22,8 +31,9 @@ def chat():
 def handle_join(data):
     username = data['username']
     room = data['room']
+    welcomeMsg = choice(welcomes)
     join_room(room)
-    send({'msg': f"{username} è entrato nella chat!"}, room=room)
+    send({'msg': f"{username}" + welcomeMsg}, room=room)
     
 @socketio.on('message')
 def handle_messages(data):
