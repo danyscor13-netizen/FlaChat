@@ -54,7 +54,7 @@ def handle_disconnect():
     for room, users in rooms_users.items():
         if sid in users:
             username = users.pop(sid)
-            send({'msg': f"{username] ha lasciato la stanza."}, room=room)
+            send({'msg': f"{username} ha lasciato la stanza."}, room=room)
             emit('update_users', list(users.values()), room=room)
             break
     
