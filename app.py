@@ -1,5 +1,5 @@
 from flask import Flask, render_template, request
-from flask_socketio import SocketIO, join_room, send
+from flask_socketio import SocketIO, join_room, send, emit
 
 from random import choice
 
@@ -49,6 +49,7 @@ def handle_messages(data):
     msg = data['msg']
     send({'username' : username, 'msg' : msg}, room=room)
 
+@socketio.on('disconnect')
 def handle_disconnect():
     sid = request.sid
     for room, users in rooms_users.items():
