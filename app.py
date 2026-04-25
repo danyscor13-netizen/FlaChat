@@ -90,6 +90,37 @@ def handle_messages(data):
     sid = request.sid
 
     role = rooms_roles[room].get(sid, "user")
+
+    # Comandi
+    # Al momemnto solo /role <utente> <ruolo>
+    if msg.startswith("/role "):
+        if role != "owner":
+            send({
+                "type": "system",
+                "msg": "Solo il proprietario può usare '/role'"
+            }, room=sid)
+            return
+        try:
+            _, target_name, new_role = msg.split(" ", 2)
+        except:
+            send({
+                "type": "system",
+                "msg": "Uso: /role <utente> <ruolo>"
+            }, room=sid)
+            return
+
+        target.sid = None
+        for s, u in rooms_users[room].items():
+            if u.lower() == target_name.lower():
+                target_sid = s
+                break
+            if not target_sid:
+                send ({
+                    "type": "system",
+                    "msg": "Questo utente non esiste"
+                }, room=sid)
+                return
+    
     role_data = rooms_role_defs[room].get(role, {"color": "white"})
     color = role_data["color"]
     
