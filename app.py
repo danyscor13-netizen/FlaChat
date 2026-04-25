@@ -84,7 +84,13 @@ def handle_messages(data):
     username = data['username']
     room = data['room']
     msg = data['msg']
-    send({'username' : username, 'msg' : msg}, room=room)
+    sid = request.sid
+
+    role = rooms_roles[room].get(sid, "user")
+    role_data = rooms_role_defs[room].get(role, {"color": "white"})
+    color = role_data["color"]
+    
+    send({'username' : username, 'msg' : msg, 'color': color}, room=room)
 
 
 @socketio.on('disconnect')
