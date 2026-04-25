@@ -132,6 +132,13 @@ def handle_messages(data):
                 "msg": "Questo utente non esiste"
             }, room=sid)
             return
+
+        if new_role == "owner":
+            send({
+                "type": "system",
+                "msg": "Non puoi nominare qualcuno come erede al trono."
+            }, room=sid)
+            return
     
         rooms_roles[room][target_sid] = new_role
     
