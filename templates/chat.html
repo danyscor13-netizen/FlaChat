@@ -12,6 +12,14 @@
             justify-content: center;
             align-items: center;
         }
+
+        .wrapper {
+            display: flex;
+            gap: 12px;
+            width: 95%;
+            max-width: 900px;
+        }
+        
         .container {
             background-color: rgb(55,55,55,0.5);
             margin: 0 auto;
@@ -21,6 +29,38 @@
             border: 2px solid white;
             border-radius: 10px;
         }
+
+        .sidebar {
+            background-color: rgba(55,55,55,0.5);
+            border: 2px solid white;
+            border-radius: 10px;
+            padding: 10px 14px;
+            min-width: 140px;
+            color: white;
+        }
+        .sidebar h3 {
+            font-size: 0.9rem;
+            margin-bottom: 8px;
+            border-bottom: 1px solid rgba(255,255,255,0.4);
+            padding-bottom: 4px;
+        }
+        #user-list { list-style: none; }
+        #user-list li {
+            font-size: 0.85rem;
+            padding: 3px 0;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        #user-list li::before {
+            content: '';
+            display: inline-block;
+            width: 8px;
+            height: 8px;
+            background: #5f5;
+            border-radius: 50%;
+        }
+        
         input {
             -webkit-text-fill-color: black;
         }
@@ -45,12 +85,19 @@
         }
     </style>
     <body>
-        <div class="container">
-            <div id="chat-box"></div>
-            <form id="message-form">
-                <input type="text" id="message" placeholder="Scrivi un messaggio..." autocomplete="off" required>
-                <button type="submit">Invia!</button>
-            </form>
+        <div class="wrapper">
+            <div class="container">
+                <div id="chat-box"></div>
+                <form id="message-form">
+                    <input type="text" id="message" placeholder="Scrivi un messaggio..." autocomplete="off" required>
+                    <button type="submit">Invia!</button>
+                </form>
+            </div>
+        </div>
+
+        <div class="sidebar">
+            <h3>🟢 Online</h3>
+            <ul id="user-list"></ul>
         </div>
 
         <script>
@@ -68,6 +115,16 @@
             msg.innerHTML = data.username ? `<strong>${data.username}:</strong> ${data.msg}` : `<em>${data.msg}</em>`;
             chatBox.appendChild(msg);
             chatBox.scrollTop = chatBox.scrollHeight;
+        });
+
+        socket.on('update_users', users => {
+            const list = document.getElementById('user-list');
+            list.innerHTML = '';
+            users.forEach(u => {
+                const li = document.createElement('li');
+                li.textContent = u;
+                list.appendChild(li);
+            });
         });
 
         // Invia messaggio
