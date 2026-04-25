@@ -24,7 +24,7 @@ welcomes = [
 
 def get_db():
     conn = sqlite3.connect("flachat.db")
-    conn.row_factory = sqlite.Row
+    conn.row_factory = sqlite3.Row
     return conn
 
 def init_db():
