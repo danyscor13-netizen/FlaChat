@@ -55,7 +55,7 @@ def handle_join(data):
     
     rooms_users[room][sid] = username
 
-    if len(rooms_roles[room])) == 0:
+    if len(rooms_roles[room]) == 0:
         rooms_roles[room][sid] = "owner"
     else:
         rooms_roles[room][sid] = "user"
@@ -89,12 +89,21 @@ def emit_users(room):
 @socketio.on('disconnect')
 def handle_disconnect():
     sid = request.sid
-    for room, users in rooms_users.items():
+
+    for room, users in list(rooms_users.keys()):
         if sid in users:
-            username = users.pop(sid)
+
+            username = rooms_users[room].pop(sid)
+            rooms_roles[room].pop(sid, None)
+
             send({'msg': f"{username} ha lasciato la stanza."}, room=room)
-            emit('update_users', list(users.values()), room=room)
-            break
+
+            emit_users(room)
+
+            if len(rooms_users[room]):
+                del rooms_users[room]
+                del rooms_roles[room]
+                del rooms_role_defs[room]
     
 if __name__ == "__main__":
     socketio.run(app, debug=True, allow_unsafe_werkzeug=True, host='0.0.0.0', port=int(os.environ.get("PORT", 5000)))
