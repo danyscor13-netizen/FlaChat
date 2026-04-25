@@ -4,7 +4,8 @@ from flask_socketio import SocketIO, join_room, send, emit
 from random import choice
 
 import os
-
+import sqlite3
+import time
 
 app = Flask(__name__)
 socketio = SocketIO(app)
@@ -20,6 +21,26 @@ welcomes = [
     " stava facendo un'entrata segreta, ma fu colto di sprovvista! Salutatelo!",
     ", sentiti libero di accomodarti!"
 ]
+
+def get_db():
+    conn = sqlite3.connect("flachat.db")
+    conn.row_factory = sqlite.Row
+    return conn
+
+def init_db():
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("""
+    CREATE TABLE IF NOT EXISTS bans (
+        room TEXT,
+        user_id TEXT,
+        expire REAL
+    )
+    """)
+    conn.commit()
+    conn.close()
+
+init_db()
 
 def init_roles(room):
     if room not in rooms_role_defs:
@@ -59,7 +80,28 @@ def handle_join(data):
     username = data['username']
     room = data['room']
     sid = request.sid
-    
+
+    # ban check
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("SELECT * FROM bans WHERE room=? AND user_id=?", (room, sid))
+    ban = c.fetchone()
+    conn.close()
+
+    if ban and ban['expire'] > time.time():
+        emit("message", {
+            "type": "system",
+            "msg": "Sei bannato da questa stanza."
+        }, room=sid)
+        return
+    elif ban:
+        # pulizia ban scaduto
+        conn = get_db()
+        c = conn.cursor()
+        c.execute("DELETE FROM bans WHERE room=? AND user_id=?", (room, sid))
+        conn.commit()
+        conn.close()
+
     welcomeMsg = choice(welcomes)
     
     if room not in rooms_users:
@@ -69,7 +111,7 @@ def handle_join(data):
     
     rooms_users[room][sid] = username
 
-    if len(rooms_roles[room]) == 0:
+    if "owner" not in rooms_roles[room].values():
         rooms_roles[room][sid] = "owner"
     else:
         rooms_roles[room][sid] = "user"
@@ -92,7 +134,9 @@ def handle_messages(data):
     role = rooms_roles[room].get(sid, "user")
 
     # Comandi
-    # Al momemnto solo /role <utente> <ruolo>
+    # nuovi comandi: /kick e /ban
+    # usi: /role <utente> <ruolo>, /kick <utente>, /ban <utente> <tempo>
+    
     if msg.startswith("/role "):
     
         if role != "owner":
@@ -145,6 +189,71 @@ def handle_messages(data):
         send({
             "type": "system",
             "msg": f"{target_name} ora è {new_role}"
+        }, room=room)
+    
+        emit_users(room)
+        return
+
+    if msg.startswith("/kick "):
+        if role not in ["owner", "admin", "mod"]:
+            return
+    
+        target_name = msg.split(" ", 1)[1]
+        target_sid = None
+    
+        for s, u in rooms_users[room].items():
+            if u.lower() == target_name.lower():
+                target_sid = s
+                break
+    
+        if not target_sid:
+            return
+
+        rooms_users[room].pop(target_sid, None)
+        rooms_roles[room].pop(target_sid, None)
+        socketio.server.disconnect(target_sid)
+    
+        send({
+            "type": "system",
+            "msg": f"{target_name} è stato cacciato."
+        }, room=room)
+    
+        emit_users(room)
+        return
+
+    if msg.startswith("/ban "):
+        if role not in ["owner", "admin"]:
+            return
+    
+        _, target_name, seconds = msg.split(" ", 2)
+        seconds = int(seconds)
+    
+        target_sid = None
+    
+        for s, u in rooms_users[room].items():
+            if u.lower() == target_name.lower():
+                target_sid = s
+                break
+    
+        if not target_sid:
+            return
+    
+        conn = get_db()
+        c = conn.cursor()
+    
+        c.execute(
+            "INSERT INTO bans VALUES (?, ?, ?)",
+            (room, target_sid, time.time() + seconds)
+        )
+    
+        conn.commit()
+        conn.close()
+    
+        socketio.server.disconnect(target_sid)
+    
+        send({
+            "type": "system",
+            "msg": f"{target_name} bannato per {seconds}s"
         }, room=room)
     
         emit_users(room)
