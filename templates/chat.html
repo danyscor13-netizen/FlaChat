@@ -119,16 +119,18 @@
         socket.on('update_users', users => {
             const list = document.getElementById('user-list');
             list.innerHTML = '';
+        
             users.forEach(u => {
                 const li = document.createElement('li');
-
+        
                 let icon = "";
-                if (u.role === "owner") icon = "";
-                if (u.role === "admin") icon = "";
-                if (u.role === "mod") icon = "";
-
-                li.style.color = u.color
-                li.textContent = u.username;
+                if (u.role === "owner") icon = "👑";
+                if (u.role === "admin") icon = "🛡️";
+                if (u.role === "mod") icon = "🔧";
+        
+                li.style.color = u.color;
+                li.textContent = `${icon} ${u.username}`;
+        
                 list.appendChild(li);
             });
         });
