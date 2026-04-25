@@ -76,7 +76,10 @@ def handle_join(data):
     
     join_room(room)
     
-    send({'msg': f"{username}" + welcomeMsg}, room=room)
+    send({
+        'type': 'system',
+        'msg': f"{username}{welcomeMsg}"
+    }, room=room)
     emit_users(room)
     
 @socketio.on('message')
@@ -90,8 +93,12 @@ def handle_messages(data):
     role_data = rooms_role_defs[room].get(role, {"color": "white"})
     color = role_data["color"]
     
-    send({'username' : username, 'msg' : msg, 'color': color}, room=room)
-
+    send({
+        'type': 'chat',
+        'username': username,
+        'msg': msg,
+        'color': color
+    }, room=room)
 
 @socketio.on('disconnect')
 def handle_disconnect():
