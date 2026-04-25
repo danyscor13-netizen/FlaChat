@@ -94,12 +94,14 @@ def handle_messages(data):
     # Comandi
     # Al momemnto solo /role <utente> <ruolo>
     if msg.startswith("/role "):
+    
         if role != "owner":
             send({
                 "type": "system",
                 "msg": "Solo il proprietario può usare '/role'"
             }, room=sid)
             return
+    
         try:
             _, target_name, new_role = msg.split(" ", 2)
         except:
@@ -108,18 +110,38 @@ def handle_messages(data):
                 "msg": "Uso: /role <utente> <ruolo>"
             }, room=sid)
             return
-
-        target.sid = None
+    
+        # verifica ruolo valido
+        if new_role not in rooms_role_defs[room]:
+            send({
+                "type": "system",
+                "msg": "Ruolo non valido"
+            }, room=sid)
+            return
+    
+        target_sid = None
+    
         for s, u in rooms_users[room].items():
-            if u.lower() == target_name.lower():
+            if u.strip().lower() == target_name.strip().lower():
                 target_sid = s
                 break
-            if not target_sid:
-                send ({
-                    "type": "system",
-                    "msg": "Questo utente non esiste"
-                }, room=sid)
-                return
+    
+        if not target_sid:
+            send({
+                "type": "system",
+                "msg": "Questo utente non esiste"
+            }, room=sid)
+            return
+    
+        rooms_roles[room][target_sid] = new_role
+    
+        send({
+            "type": "system",
+            "msg": f"{target_name} ora è {new_role}"
+        }, room=room)
+    
+        emit_users(room)
+        return
     
     role_data = rooms_role_defs[room].get(role, {"color": "white"})
     color = role_data["color"]
