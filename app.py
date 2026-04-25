@@ -90,7 +90,7 @@ def emit_users(room):
 def handle_disconnect():
     sid = request.sid
 
-    for room, users in list(rooms_users.keys()):
+    for room, users in list(rooms_users.items()):
         if sid in users:
 
             username = rooms_users[room].pop(sid)
