@@ -30,6 +30,20 @@ def init_roles(room):
             "user": {"color": "white", "permissions": []}
         }
 
+def emit_users(room):
+    users = []
+    for sid, username in rooms_users.get(room, {}).items():
+        role = rooms_roles[room].get(sid, "user")
+        role_data = rooms_role_defs[room].get(role, {"color": "white"})
+
+        users.append({
+            "username": username,
+            "role": role,
+            "color": role_data["color"]
+        })
+
+    socketio.emit('update_users', users, room=room)
+
 @app.route('/')
 def home():
     return render_template("home.html")
@@ -63,7 +77,7 @@ def handle_join(data):
     join_room(room)
     
     send({'msg': f"{username}" + welcomeMsg}, room=room)
-    emit('update_users', list(rooms_users[room].values()), room=room)
+    emit_users(room)
     
 @socketio.on('message')
 def handle_messages(data):
@@ -72,19 +86,6 @@ def handle_messages(data):
     msg = data['msg']
     send({'username' : username, 'msg' : msg}, room=room)
 
-def emit_users(room):
-    users = []
-    for sid, username in rooms_users.get(room, {}).items():
-        role = rooms_roles[room].get(sid, "user")
-        role_data = rooms_role_defs[room].get(role, {"color": "white"})
-
-        users.append({
-            "username": username,
-            "role": role,
-            "color": role_data["color"]
-        })
-
-    socketio.emit('update_users', users, room=room)
 
 @socketio.on('disconnect')
 def handle_disconnect():
@@ -100,7 +101,7 @@ def handle_disconnect():
 
             emit_users(room)
 
-            if len(rooms_users[room]):
+            if len(rooms_users[room]) == 0:
                 del rooms_users[room]
                 del rooms_roles[room]
                 del rooms_role_defs[room]
