@@ -110,17 +110,21 @@
 
         // Ricevi messaggi
         socket.on('message', data => {
-            const chatBox = document.getElementById('chat-box');
-            const msg = document.createElement('p');
-
-            if (data.username) {
-                msg.innerHTML = `<span style="color:${data.color}"><b>${data.username}</b></span>: ${data.msg}`;
-            } else {
-                msg.innerHtml = `<i>$data{data.msg}</i>`;
+            const box = document.getElementById('chat-box');
+            const p = document.createElement('p');
+        
+            if (data.type === "chat") {
+                p.innerHTML = `
+                    <span style="color:${data.color}; font-weight:bold;">
+                        ${data.username}
+                    </span>: ${data.msg}
+                `;
+            } else if (data.type === "system") {
+                p.innerHTML = `<span style="opacity:0.7; font-style:italic;">${data.msg}</span>`;
             }
-            
-            chatBox.appendChild(msg);
-            chatBox.scrollTop = chatBox.scrollHeight;
+        
+            box.appendChild(p);
+            box.scrollTop = box.scrollHeight;
         });
 
         socket.on('update_users', users => {
