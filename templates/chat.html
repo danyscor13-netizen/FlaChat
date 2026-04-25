@@ -112,7 +112,13 @@
         socket.on('message', data => {
             const chatBox = document.getElementById('chat-box');
             const msg = document.createElement('p');
-            msg.innerHTML = data.username ? `<strong>${data.username}:</strong> ${data.msg}` : `<em>${data.msg}</em>`;
+
+            if (data.username) {
+                msg.innerHTML = `<span style="color:${data.color}"><b>${data.username}</b></span>: ${data.msg}`;
+            } else {
+                msg.innerHtml = `<i>$data{data.msg}</i>`;
+            }
+            
             chatBox.appendChild(msg);
             chatBox.scrollTop = chatBox.scrollHeight;
         });
