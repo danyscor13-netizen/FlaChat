@@ -110,7 +110,10 @@ def handle_disconnect():
             username = rooms_users[room].pop(sid)
             rooms_roles[room].pop(sid, None)
 
-            send({'msg': f"{username} ha lasciato la stanza."}, room=room)
+            send({
+                'type': 'system',
+                'msg': f"{username} ha lasciato la stanza."
+            }, room=room)
 
             emit_users(room)
 
