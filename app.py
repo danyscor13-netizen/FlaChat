@@ -234,6 +234,12 @@ def handle_messages(data):
             return
         rooms_users[room].pop(target_sid, None)
         rooms_roles[room].pop(target_sid, None)
+
+        send({
+            "type": "msg",
+            "msg": "Sei stato cacciato dalla stanza."
+        }, room=target_sid)
+
         socketio.server.disconnect(target_sid)
         send({"type": "system", "msg": f"{target_name} è stato cacciato."}, room=room)
         emit_users(room)
@@ -256,6 +262,12 @@ def handle_messages(data):
         c.execute("INSERT INTO bans VALUES (?, ?, ?)", (room, target_sid, time.time() + seconds))
         conn.commit()
         conn.close()
+
+        send({
+            "type": "system",
+            "msg": f"Sei stato bannato dalla stanza per {seconds}s."
+        }, room=target_sid)
+
         socketio.server.disconnect(target_sid)
         send({"type": "system", "msg": f"{target_name} bannato per {seconds}s"}, room=room)
         emit_users(room)
