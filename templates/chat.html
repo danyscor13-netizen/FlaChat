@@ -1,128 +1,132 @@
 <html>
-    <head>
-        <title>Chat</title>
-        <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
-    </head>
-    <style>
-        body {
-            background-color: RGB(0, 150, 150);
-            color: white;
-            font-family:'Gill Sans', 'Gill Sans MT', Calibri, 'Trebuchet MS', sans-serif;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-        }
+<head>
+    <title>FlaChat</title>
+    <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<style>
+    .wrapper {
+        display: flex;
+        gap: 12px;
+        width: 95%;
+        max-width: 900px;
+    }
 
-        .wrapper {
-            display: flex;
-            gap: 12px;
-            width: 95%;
-            max-width: 900px;
-        }
-        
-        .container {
-            background-color: rgb(55,55,55,0.5);
-            margin: 0 auto;
-            text-align: center;
-            max-width: 800px;
-            padding: 10px 20px;
-            border: 2px solid white;
-            border-radius: 10px;
-        }
+    .chat-container {
+        background-color: rgba(55,55,55,0.5);
+        flex: 1;
+        padding: 10px 20px;
+        border: 2px solid white;
+        border-radius: 10px;
+        display: flex;
+        flex-direction: column;
+    }
 
-        .sidebar {
-            background-color: rgba(55,55,55,0.5);
-            border: 2px solid white;
-            border-radius: 10px;
-            padding: 10px 14px;
-            min-width: 140px;
-            color: white;
-        }
-        .sidebar h3 {
-            font-size: 0.9rem;
-            margin-bottom: 8px;
-            border-bottom: 1px solid rgba(255,255,255,0.4);
-            padding-bottom: 4px;
-        }
-        #user-list { list-style: none; }
-        #user-list li {
-            font-size: 0.85rem;
-            padding: 3px 0;
-            display: flex;
-            align-items: center;
-            gap: 6px;
-        }
-        #user-list li::before {
-            content: '';
-            display: inline-block;
-            width: 8px;
-            height: 8px;
-            background: #5f5;
-            border-radius: 50%;
-        }
-        
-        input {
-            -webkit-text-fill-color: black;
-        }
-        button {
-            background-color: black;
-            border: 1.5px solid white;
-            border-radius: 8px;
-            padding: 10px 20px;
-            transition: transform 0.5s, background-color 0.5s, -webkit-text-fill-color 0.5s, border 0.5s;
-            font-size: 1rem;
-            font-family: 'Lucida Sans', 'Lucida Sans Regular', 'Lucida Grande', 'Lucida Sans Unicode', Geneva, Verdana, sans-serif;
-            cursor: pointer;
-        }
-        button:hover {
-            transform: scale(1.25);
-            background-color: white;
-            -webkit-text-fill-color: black;
-            border: 1.5px solid black;
-        }
-        button:active {
-            transform: scale(0.75);
-        }
-    </style>
-    <body>
-        <div class="wrapper">
-            <div class="container">
-                <div id="chat-box"></div>
-                <form id="message-form">
-                    <input type="text" id="message" placeholder="Scrivi un messaggio..." autocomplete="off" required>
-                    <button type="submit">Invia!</button>
-                </form>
+    #chat-box {
+        flex: 1;
+        overflow-y: auto;
+        min-height: 300px;
+        max-height: 60vh;
+        margin-bottom: 10px;
+        text-align: left;
+    }
+
+    #chat-box p { margin: 4px 0; }
+
+    #message-form {
+        display: flex;
+        gap: 8px;
+    }
+
+    #message-form input {
+        flex: 1;
+        display: inline;
+        width: auto;
+        margin: 0;
+        -webkit-text-fill-color: white;
+    }
+
+    .sidebar {
+        background-color: rgba(55,55,55,0.5);
+        border: 2px solid white;
+        border-radius: 10px;
+        padding: 10px 14px;
+        min-width: 140px;
+    }
+
+    .sidebar h3 {
+        font-size: 0.9rem;
+        margin-bottom: 8px;
+        border-bottom: 1px solid rgba(255,255,255,0.4);
+        padding-bottom: 4px;
+    }
+
+    #user-list { list-style: none; padding: 0; margin: 0; }
+    #user-list li {
+        font-size: 0.85rem;
+        padding: 3px 0;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+    }
+    #user-list li::before {
+        content: '';
+        display: inline-block;
+        width: 8px;
+        height: 8px;
+        background: #5f5;
+        border-radius: 50%;
+        flex-shrink: 0;
+    }
+
+    .top-bar {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 8px;
+    }
+
+    .top-bar small a { font-size: 0.8rem; }
+</style>
+<body>
+    <div class="wrapper">
+        <div class="chat-container">
+            <div class="top-bar">
+                <span>Stanza <strong>#{{ room }}</strong> — loggato come <strong>{{ username }}</strong></span>
+                <small><a href="/logout">Esci</a> | <a href="/lobby">Cambia stanza</a></small>
             </div>
 
-            <div class="sidebar">
-                <h3>🟢 Online</h3>
-                <ul id="user-list"></ul>
-            </div>
+            <div id="chat-box"></div>
+
+            <form id="message-form">
+                <input type="text" id="message" placeholder="Scrivi un messaggio..." autocomplete="off" required>
+                <button type="submit">Invia</button>
+            </form>
         </div>
 
-        <script>
+        <div class="sidebar">
+            <h3>🟢 Online</h3>
+            <ul id="user-list"></ul>
+        </div>
+    </div>
+
+    <script>
         const socket = io();
         const username = "{{ username }}";
         const room = "{{ room }}";
 
-        // Entra nella stanza
         socket.emit('join', { username, room });
 
-        // Ricevi messaggi
         socket.on('message', data => {
             const box = document.getElementById('chat-box');
             const p = document.createElement('p');
-        
+
             if (data.type === "chat") {
-                p.innerHTML = `
-                    <span style="color:${data.color}; font-weight:bold;">
-                        ${data.username}
-                    </span>: ${data.msg}
-                `;
+                p.innerHTML = `<span style="color:${data.color}; font-weight:bold;">${data.username}</span>: ${data.msg}`;
             } else if (data.type === "system") {
                 p.innerHTML = `<span style="opacity:0.7; font-style:italic;">${data.msg}</span>`;
             }
-        
+
             box.appendChild(p);
             box.scrollTop = box.scrollHeight;
         });
@@ -130,32 +134,28 @@
         socket.on('update_users', users => {
             const list = document.getElementById('user-list');
             list.innerHTML = '';
-        
+
             users.forEach(u => {
                 const li = document.createElement('li');
-        
                 let icon = "";
                 if (u.role === "owner") icon = "👑";
                 if (u.role === "admin") icon = "🛡️";
                 if (u.role === "mod") icon = "🔧";
-        
                 li.style.color = u.color;
                 li.textContent = `${icon} ${u.username}`;
-        
                 list.appendChild(li);
             });
         });
 
-        // Invia messaggio
         document.getElementById('message-form').addEventListener('submit', function(e) {
             e.preventDefault();
             const input = document.getElementById('message');
-            const msg = input.value;
-            if (msg.trim() !== "") {
+            const msg = input.value.trim();
+            if (msg !== "") {
                 socket.emit('message', { username, room, msg });
                 input.value = "";
             }
         });
     </script>
-    </body>
+</body>
 </html>
