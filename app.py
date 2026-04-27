@@ -280,6 +280,53 @@ def handle_messages(data):
         send({"type": "system", "msg": f"{target_name} bannato per {seconds}s"}, room=room)
         emit_users(room)
         return
+    
+    if msg.startswith("/newrole "):
+        if role != "owner":
+            send({
+                "type": "system",
+                "msg": "Solo il proprietario del server può creare un nuovo ruolo."
+            }, room=sid)
+            return
+        role_name = msg.split(" ", 1)[1].strip().lower()
+        if role_name in rooms_role_defs[room]:
+            send({
+                "type": "system",
+                "msg": "Questo ruolo esiste già! Non puoi creare un doppione."
+            }, room=sid)
+            return
+        emit("open_role_creator", {"role_name": role_name}, room=sid)
+        return
+    
+    if msg.startswith("/delrole "):
+        if role != "owner":
+            send({
+                "type": "system",
+                "msg": "Solo il proprietario può cancellare un ruolo."
+            }, room=sid)
+            return
+        role_name = msg.split(" ", 1)[1].strip().lower()
+        if role_name in ["owner", "admin", "mod", "user"]:
+            send({
+                "type": "system",
+                "msg": "Non puoi cancellare i ruoli predefiniti."
+            }, room=sid)
+        if role_name not in rooms_role_defs[room]:
+            send({
+                "type": "system",
+                "msg": "Questo ruolo non esiste."
+            }, room=sid)
+        del rooms_role_defs[room][role_name]
+        # Togliamo il ruolo a tutti coloro che ce l'hanno equipaggiata
+        for s in rooms_roles[room]:
+            if rooms_roles[room][s] == role_name:
+                rooms_role[room][s] = "user"
+        send({
+            "type": "system",
+            "msg": f"Il ruolo '{role_name}' è stato cancellato."
+        }, room=room)
+        emit_users(room)
+        return
 
     role_data = rooms_role_defs[room].get(role, {"color": "white"})
     color = role_data["color"]
