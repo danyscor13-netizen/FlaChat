@@ -1,0 +1,18 @@
+<html>
+<head>
+    <title>Stanza – FlaChat</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <div class="container">
+        <h2>Ciao, {{ username }}!</h2>
+        <p>Inserisci il codice stanza</p>
+        <form action="/lobby" method="POST">
+            <input type="number" name="room" placeholder="Codice stanza" required>
+            <button type="submit">Entra</button>
+        </form>
+        <br>
+        <small><a href="/logout">Esci dall'account</a></small>
+    </div>
+</body>
+</html>
