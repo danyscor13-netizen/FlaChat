@@ -147,7 +147,25 @@ def lobby():
 def chat(room):
     if 'username' not in session:
         return redirect(url_for('home'))
-    return render_template('chat.html', username=session['username'], room=room)
+    
+    # check ban prima di entrare
+    username = session['username']
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("SELECT * FROM bans WHERE room=? AND user_id=?", (room, username.lower()))
+    ban = c.fetchone()
+    conn.close()
+
+    if ban and ban['expire'] > time.time():
+        return redirect(url_for('lobby', banned=1))
+    elif ban:
+        conn = get_db()
+        c = conn.cursor()
+        c.execute("DELETE FROM bans WHERE room=? AND user_id=?", (room, username.lower()))
+        conn.commit()
+        conn.close()
+
+    return render_template('chat.html', username=username, room=room)
 
 # ---------- SOCKET ----------
 
