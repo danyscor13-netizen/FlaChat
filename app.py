@@ -236,7 +236,7 @@ def handle_messages(data):
         rooms_roles[room].pop(target_sid, None)
 
         send({
-            "type": "msg",
+            "type": "system",
             "msg": "Sei stato cacciato dalla stanza."
         }, room=target_sid)
 
