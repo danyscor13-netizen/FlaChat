@@ -275,7 +275,7 @@ def handle_messages(data):
         c.execute("INSERT INTO bans VALUES (?, ?, ?)", (room, target_name.lower(), time.time() + seconds))
         conn.commit()
         conn.close()
-        send({"type": "system", "msg": f"Sei stato bannato dalla stanza per {seconds}s."}, room=target_sid)
+        send({"type": "banned", "msg": f"Sei stato bannato dalla stanza per {seconds}s."}, room=target_sid)
         socketio.server.disconnect(target_sid)
         send({"type": "system", "msg": f"{target_name} bannato per {seconds}s"}, room=room)
         emit_users(room)

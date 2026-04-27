@@ -4,6 +4,27 @@
     <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
+    {% if request.args.get('banned') %}
+    <div id="ban-modal" style="
+        position:fixed; inset:0;
+        background:rgba(0,0,0,0.6);
+        display:flex; justify-content:center; align-items:center;
+        z-index:999;
+    ">
+        <div style="
+            background:rgba(55,55,55,0.95);
+            border:2px solid red;
+            border-radius:10px;
+            padding:30px 40px;
+            text-align:center;
+        ">
+            <h3 style="color:red;">Sei bannato da questa stanza!</h3>
+            <p>Non puoi entrare finché il ban non scade.</p>
+            <button onclick="document.getElementById('ban-modal').remove()">OK</button>
+        </div>
+    </div>
+    {% endif %}
+
     <div class="container">
         <h2>Ciao, {{ username }}!</h2>
         <p>Inserisci il codice stanza</p>

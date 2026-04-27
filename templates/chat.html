@@ -118,6 +118,17 @@
         socket.emit('join', { username, room });
 
         socket.on('message', data => {
+            if (data.type === "banned") {
+                setTimeout(() => {
+                    window.location.href = "/lobby?banned=1";
+                }, 2000);
+                const box = document.getElementById('chat-box');
+                const p = document.createElement('p');
+                p.innerHTML = `<span style="color:red; font-weight:bold;">Sei stato bannato da questa stanza. Verrai reindirizzato alla lobby tra un paio di secondi...</span>`;
+                box.appendChild(p);
+                return;
+            }
+
             const box = document.getElementById('chat-box');
             const p = document.createElement('p');
 
