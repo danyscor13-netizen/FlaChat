@@ -159,7 +159,7 @@ def handle_join(data):
 
     conn = get_db()
     c = conn.cursor()
-    c.execute("SELECT * FROM bans WHERE room=? AND user_id=?", (room, sid))
+    c.execute("SELECT * FROM bans WHERE room=? AND user_id=?", (room, username.lower()))
     ban = c.fetchone()
     conn.close()
 
@@ -169,7 +169,7 @@ def handle_join(data):
     elif ban:
         conn = get_db()
         c = conn.cursor()
-        c.execute("DELETE FROM bans WHERE room=? AND user_id=?", (room, sid))
+        c.execute("DELETE FROM bans WHERE room=? AND user_id=?", (room, username.lower()))
         conn.commit()
         conn.close()
 
@@ -234,12 +234,7 @@ def handle_messages(data):
             return
         rooms_users[room].pop(target_sid, None)
         rooms_roles[room].pop(target_sid, None)
-
-        send({
-            "type": "system",
-            "msg": "Sei stato cacciato dalla stanza."
-        }, room=target_sid)
-
+        send({"type": "system", "msg": "Sei stato cacciato dalla stanza."}, room=target_sid)
         socketio.server.disconnect(target_sid)
         send({"type": "system", "msg": f"{target_name} è stato cacciato."}, room=room)
         emit_users(room)
@@ -259,15 +254,10 @@ def handle_messages(data):
             return
         conn = get_db()
         c = conn.cursor()
-        c.execute("INSERT INTO bans VALUES (?, ?, ?)", (room, target_sid, time.time() + seconds))
+        c.execute("INSERT INTO bans VALUES (?, ?, ?)", (room, target_name.lower(), time.time() + seconds))
         conn.commit()
         conn.close()
-
-        send({
-            "type": "system",
-            "msg": f"Sei stato bannato dalla stanza per {seconds}s."
-        }, room=target_sid)
-
+        send({"type": "system", "msg": f"Sei stato bannato dalla stanza per {seconds}s."}, room=target_sid)
         socketio.server.disconnect(target_sid)
         send({"type": "system", "msg": f"{target_name} bannato per {seconds}s"}, room=room)
         emit_users(room)
