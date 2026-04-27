@@ -316,11 +316,12 @@ def handle_messages(data):
                 "type": "system",
                 "msg": "Questo ruolo non esiste."
             }, room=sid)
+            return
         del rooms_role_defs[room][role_name]
         # Togliamo il ruolo a tutti coloro che ce l'hanno equipaggiata
         for s in rooms_roles[room]:
             if rooms_roles[room][s] == role_name:
-                rooms_role[room][s] = "user"
+                rooms_roles[room][s] = "user"
         send({
             "type": "system",
             "msg": f"Il ruolo '{role_name}' è stato cancellato."
