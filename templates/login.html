@@ -1,0 +1,21 @@
+<html>
+<head>
+    <title>Login – FlaChat</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <div class="container">
+        <h2>Accedi</h2>
+        {% if error %}
+            <div class="error">{{ error }}</div>
+        {% endif %}
+        <form action="/login" method="POST">
+            <input type="text" name="username" placeholder="Nome utente" required>
+            <input type="password" name="password" placeholder="Password" required>
+            <button type="submit">Entra</button>
+        </form>
+        <br>
+        <small>Non hai un account? <a href="/register">Registrati</a></small>
+    </div>
+</body>
+</html>
