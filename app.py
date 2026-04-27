@@ -346,5 +346,34 @@ def handle_disconnect():
                 del rooms_roles[room]
                 del rooms_role_defs[room]
 
+@socketio.on('create_role')
+def handle_role_creation(data):
+    room = data['room']
+    role_name = data['role_name'].strip().lower()
+    color = data['color']
+    sid = request.sid
+
+    role = rooms_roles[room].get(sid, "user")
+    if role != "owner":
+        return
+    
+    if role_name in rooms_role_defs[room]:
+        emit(
+            "message",
+            {
+                "type": "system",
+                "msg": "Ruolo già esistente"
+            },
+            room = sid
+        )
+        return
+    
+    rooms_role_defs[room][role_name] = {"color": color, "permissions": []}
+    send({
+        "type": "system",
+        "msg": f"Il ruolo '{role_name}' è stato creato con successo!"
+    }, room = room)
+    emit_users(room)
+
 if __name__ == "__main__":
     socketio.run(app, debug=True, allow_unsafe_werkzeug=True, host='0.0.0.0', port=int(os.environ.get("PORT", 5000)))

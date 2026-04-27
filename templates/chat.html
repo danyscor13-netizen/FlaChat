@@ -88,6 +88,52 @@
 
     .top-bar small a { font-size: 0.8rem; }
 </style>
+
+<!-- Pannello creazione ruolo -->
+<div id="role-creator" style="display:none; position:fixed; inset:0;
+    background:rgba(0,0,0,0.6); justify-content:center; align-items:center; z-index:999;">
+    <div style="background:rgba(40,40,40,0.97); border:2px solid white;
+        border-radius:12px; padding:30px; text-align:center; min-width:280px;">
+        <h3 style="margin-bottom:16px;">Crea ruolo: <span id="role-creator-name" style="color:#aef;"></span></h3>
+        <label style="display:block; margin-bottom:8px; opacity:0.8;">Scegli un colore</label>
+        <input type="color" id="role-color-picker" value="#ffffff"
+            style="width:80px; height:80px; border:none; border-radius:50%;
+            cursor:pointer; background:none; padding:0;">
+        <br><br>
+        <div style="display:flex; gap:12px; justify-content:center;">
+            <button onclick="confirmRole()">✅ Crea</button>
+            <button onclick="closeRoleCreator()">❌ Annulla</button>
+        </div>
+    </div>
+</div>
+
+<script>
+    let pendingRoleName = null;
+
+    socket.on('open_role_creator', data => {
+        pendingRoleName = data.role_name;
+        document.getElementById('role-creator-name').textContent = data.role_name;
+        document.getElementById('role-color-picker').value = '#ffffff';
+        document.getElementById('role-creator').style.display = 'flex';
+    });
+
+    function conf_role() {
+        if (!pendingRoleName) return;
+        const color = document.getElementById('role-color-picker').value;
+        socket.emit('create_role', {
+            room, 
+            role_name: pendingRoleName,
+            color
+        });
+        closeRoleCreator();
+    }
+
+    function closeRoleCreator() {
+        document.getElementById('role-creator').style.display = 'none';
+        pendingRoleName = null;
+    }
+</script>
+
 <body>
     <div class="wrapper">
         <div class="chat-container">
