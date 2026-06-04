@@ -62,4 +62,6 @@ a:hover { color: white; }
 .warn {
     border: 1px solid red;
     background: rgba(255,0,0,0.3);
+    padding: 10px 20px;
+    border-radius: 6px;
 }
