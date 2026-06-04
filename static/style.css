@@ -58,3 +58,8 @@ button:active { transform: scale(0.9); }
 
 a { color: rgba(255,255,255,0.75); }
 a:hover { color: white; }
+
+.warn {
+    border: 1px solid red;
+    background: rgba(255,0,0,0.3);
+}
