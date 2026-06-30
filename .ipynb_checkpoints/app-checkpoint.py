@@ -497,22 +497,6 @@ def handle_create_role(data):
     send({"type": "system", "msg": f"Ruolo '{role_name}' creato!"}, room=room)
     emit_users(room)
 
-@socketio.on('typing')
-def handle_typing(data):
-    room = data['room']
-    username = data['username']
-    is_typing = data.get('typing', False)
-    channel = data.get('channel', 'general')
-    sid = request.sid
-
-    for target_sid, target_channel in rooms_user_channel.get(room, {}).items():
-        if target_sid != sid and target_channel == channel:
-            socketio.emit('typing', {
-                'username': username,
-                'typing': is_typing,
-                'channel': channel
-            }, room=target_sid)
-
 @socketio.on('disconnect')
 def handle_disconnect():
     sid = request.sid
