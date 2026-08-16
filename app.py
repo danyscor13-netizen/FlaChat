@@ -33,7 +33,7 @@ if not DATABASE_URL:
     raise RuntimeError(
         "DATABASE_URL non impostata.\n"
         "Prendila da Supabase: pulsante Connect -> Transaction pooler (porta 6543).\n"
-        '  export DATABASE_URL="postgresql://postgres.xxx:PW@...pooler.supabase.com:6543/postgres"')
+        '  export DATABASE_URL="postgresql://postgres.fbxojjgvikqgywbssrcz:FlaChatDB!%C2%A3@aws-0-eu-west-1.pooler.supabase.com:6543/postgres"')
 
 # Il pooler di Supabase (porta 6543) è già un pool lato server, ma un pool
 # lato client evita di riaprire una connessione TCP a ogni query: su rete
