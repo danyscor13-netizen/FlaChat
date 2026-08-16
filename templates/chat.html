@@ -70,7 +70,7 @@
 
     const box      = document.getElementById('chat-box');
     const msgList  = document.getElementById('messages');
-    const loadMore = document.getElementById('load-more');
+    const loadMoreBtn = document.getElementById('load-more');
     const input    = document.getElementById('message');
 
     socket.emit('join', { code: code });
@@ -127,7 +127,7 @@
             const msgs = await r.json();
 
             if (msgs.length) oldestId = msgs[0].id;
-            loadMore.style.display = (msgs.length === 50) ? 'block' : 'none';
+            loadMoreBtn.style.display = (msgs.length === 50) ? 'block' : 'none';
 
             const frag = document.createDocumentFragment();
             msgs.forEach(function (m) { frag.appendChild(nodoMessaggio(m)); });
