@@ -1,0 +1,28 @@
+# Render legge questo file e configura tutto da solo.
+# In alternativa si possono impostare gli stessi valori a mano
+# dalla dashboard.
+
+services:
+  - type: web
+    name: flachat
+    runtime: python
+    plan: free
+    region: frankfurt          # unica regione UE sul piano free
+                               # (il DB e' a Dublino: ~20ms in piu', accettabile)
+
+    buildCommand: pip install -r requirements.txt
+
+    # -w 1 NON è una svista: vedi note nel README.
+    startCommand: >
+      gunicorn wsgi:application
+      -k geventwebsocket.gunicorn.workers.GeventWebSocketWorker
+      -w 1
+      -b 0.0.0.0:$PORT
+
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.12.3"
+      - key: SECRET_KEY
+        generateValue: true    # Render genera una chiave casuale
+      - key: DATABASE_URL
+        sync: false            # da inserire a mano, è un segreto

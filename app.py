@@ -1,534 +1,878 @@
-from flask import Flask, render_template, request, redirect, url_for, session
-from flask_socketio import SocketIO, join_room, leave_room, send, emit
+"""
+FlaChat — superstanze permanenti (Postgres / Supabase).
 
-from random import choice
+Porting da SQLite. Differenze rispetto alla versione sqlite3:
+  - psycopg con pool di connessioni (Supabase ha un limite di connessioni)
+  - placeholder %s invece di ?
+  - INSERT ... RETURNING id invece di cur.lastrowid
+  - TIMESTAMPTZ invece di float epoch
+"""
+
+from flask import (Flask, render_template, request, redirect,
+                   url_for, session, jsonify, abort)
+from flask_socketio import SocketIO, join_room, emit
 from werkzeug.security import generate_password_hash, check_password_hash
 
+from contextlib import contextmanager
+from datetime import datetime, timedelta, timezone
+
 import os
-import sqlite3
-import time
+import random
+import string
+
+import psycopg
+from psycopg.rows import dict_row
+from psycopg_pool import ConnectionPool
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY", "cambia-questa-chiave")
 socketio = SocketIO(app)
 
-rooms_users = {}
-rooms_roles = {}
-rooms_role_defs = {}
-rooms_channels = {}        # room -> {channel_name: {permissions}}
-rooms_user_channel = {}    # room -> {sid: channel_name}
+DATABASE_URL = os.environ.get("DATABASE_URL")
+if not DATABASE_URL:
+    raise RuntimeError(
+        "DATABASE_URL non impostata.\n"
+        "Prendila da Supabase: pulsante Connect -> Transaction pooler (porta 6543).\n"
+        '  export DATABASE_URL="postgresql://postgres.xxx:PW@...pooler.supabase.com:6543/postgres"')
 
-welcomes = [
+# Il pooler di Supabase (porta 6543) è già un pool lato server, ma un pool
+# lato client evita di riaprire una connessione TCP a ogni query: su rete
+# remota il handshake costa più della query stessa.
+pool = ConnectionPool(DATABASE_URL, min_size=1, max_size=10,
+                      kwargs={"row_factory": dict_row}, open=True)
+
+
+@contextmanager
+def get_db():
+    """
+    Uso:  with get_db() as db:  ...
+    Il commit è automatico all'uscita, il rollback se c'è un'eccezione.
+    """
+    with pool.connection() as conn:
+        yield conn
+
+
+def uno(db, sql, par=()):
+    """Prima riga o None."""
+    return db.execute(sql, par).fetchone()
+
+
+def tutti(db, sql, par=()):
+    return db.execute(sql, par).fetchall()
+
+
+def inserisci(db, sql, par=()):
+    """INSERT ... RETURNING id -> id. Sostituisce cur.lastrowid."""
+    r = db.execute(sql, par).fetchone()
+    return r["id"] if r else None
+
+
+# =========================================================
+# PERMESSI — bitmask
+# =========================================================
+
+SEND_MESSAGES    = 1
+MANAGE_CHANNELS  = 2
+KICK             = 4
+BAN              = 8
+MANAGE_ROLES     = 16
+MENTION_EVERYONE = 32
+MANAGE_MESSAGES  = 64
+ADMIN            = 128
+
+ALL_PERMS = 0xFFFF
+
+PERM_NAMES = {
+    SEND_MESSAGES:    "Inviare messaggi",
+    MANAGE_CHANNELS:  "Gestire i canali",
+    KICK:             "Cacciare membri",
+    BAN:              "Bannare membri",
+    MANAGE_ROLES:     "Gestire i ruoli",
+    MENTION_EVERYONE: "Menzionare @everyone",
+    MANAGE_MESSAGES:  "Eliminare messaggi altrui",
+    ADMIN:            "Amministratore",
+}
+
+RUOLI_DEFAULT = [
+    ("owner", "#f0b232", ADMIN, 100, False),
+    ("admin", "#e04b4b", SEND_MESSAGES | MANAGE_CHANNELS | KICK | BAN
+                         | MANAGE_MESSAGES | MENTION_EVERYONE, 80, False),
+    ("mod",   "#5b8dd9", SEND_MESSAGES | KICK | MANAGE_MESSAGES, 50, False),
+    ("user",  "#cccccc", SEND_MESSAGES, 0, True),
+]
+
+# =========================================================
+# STATO VOLATILE — solo "chi è connesso adesso"
+# =========================================================
+
+online = {}        # space_id -> {sid: user_id}
+sid_channel = {}   # sid -> channel_id
+sid_space = {}     # sid -> space_id
+
+WELCOMES = [
     " è entrato nella stanza!",
     ", spero che tu abbia portato la pizza!",
     " è appena atterrato!",
-    " stava facendo un'entrata segreta, ma fu colto di sprovvista! Salutatelo!",
-    ", sentiti libero di accomodarti!"
+    ", sentiti libero di accomodarti!",
 ]
 
-def get_db():
-    conn = sqlite3.connect("flachat.db")
-    conn.row_factory = sqlite3.Row
-    return conn
 
-def init_db():
-    conn = get_db()
-    c = conn.cursor()
-    c.execute("""
-    CREATE TABLE IF NOT EXISTS bans (
-        room TEXT,
-        user_id TEXT,
-        expire REAL
-    )
-    """)
-    c.execute("""
-    CREATE TABLE IF NOT EXISTS users (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        username TEXT UNIQUE NOT NULL,
-        password TEXT NOT NULL
-    )
-    """)
-    conn.commit()
-    conn.close()
+def ora():
+    return datetime.now(timezone.utc)
 
-init_db()
 
-def init_roles(room):
-    if room not in rooms_role_defs:
-        rooms_role_defs[room] = {
-            "owner": {"color": "gold", "permissions": ["all"]},
-            "admin": {"color": "red", "permissions": ["kick", "manage_channels"]},
-            "mod": {"color": "blue", "permissions": ["kick"]},
-            "user": {"color": "white", "permissions": []}
-        }
+def ts(dt):
+    """TIMESTAMPTZ -> float epoch, per il client JS."""
+    return dt.timestamp() if dt else None
 
-def init_channels(room):
-    if room not in rooms_channels:
-        rooms_channels[room] = {
-            "general": {
-                "write": ["all"],   # tutti possono scrivere
-                "read": ["all"]
-            }
-        }
-    if room not in rooms_user_channel:
-        rooms_user_channel[room] = {}
 
-def can_write(room, sid, channel):
-    role = rooms_roles[room].get(sid, "user")
-    role_defs = rooms_role_defs[room]
-    ch = rooms_channels[room].get(channel, {})
-    write_perms = ch.get("write", ["all"])
+# =========================================================
+# PERMESSI — calcolo
+# =========================================================
 
-    if "all" in write_perms:
-        return True
-    if role == "owner":
-        return True
-    if role in write_perms:
-        return True
-    if "manage_channels" in role_defs.get(role, {}).get("permissions", []):
-        return True
-    return False
+def permessi(db, user_id, space_id, channel_id=None):
+    base = 0
+    for r in tutti(db, """
+        SELECT r.permissions FROM member_roles mr
+        JOIN roles r ON r.id = mr.role_id
+        WHERE mr.user_id = %s AND mr.space_id = %s
+    """, (user_id, space_id)):
+        base |= r["permissions"]
 
-def can_read(room, sid, channel):
-    role = rooms_roles[room].get(sid, "user")
-    ch = rooms_channels[room].get(channel, {})
-    read_perms = ch.get("read", ["all"])
+    if base & ADMIN:
+        return ALL_PERMS
+    if channel_id is None:
+        return base
 
-    if "all" in read_perms:
-        return True
-    if role == "owner":
-        return True
-    if role in read_perms:
-        return True
-    return False
+    allow = deny = 0
+    for r in tutti(db, """
+        SELECT o.allow, o.deny FROM channel_overrides o
+        JOIN member_roles mr ON mr.role_id = o.role_id
+        WHERE o.channel_id = %s AND mr.user_id = %s
+    """, (channel_id, user_id)):
+        allow |= r["allow"]
+        deny |= r["deny"]
 
-def emit_users(room):
-    users = []
-    for sid, username in rooms_users.get(room, {}).items():
-        role = rooms_roles[room].get(sid, "user")
-        role_data = rooms_role_defs[room].get(role, {"color": "white"})
-        users.append({
-            "username": username,
-            "role": role,
-            "color": role_data["color"]
+    return (base & ~deny) | allow
+
+
+def puo(db, user_id, space_id, perm, channel_id=None):
+    return bool(permessi(db, user_id, space_id, channel_id) & perm)
+
+
+def posizione(db, user_id, space_id):
+    r = uno(db, """
+        SELECT COALESCE(MAX(r."position"), -1) AS p FROM member_roles mr
+        JOIN roles r ON r.id = mr.role_id
+        WHERE mr.user_id = %s AND mr.space_id = %s
+    """, (user_id, space_id))
+    return r["p"]
+
+
+def puo_agire_su(db, attore, bersaglio, space_id):
+    if attore == bersaglio:
+        return False
+    return posizione(db, attore, space_id) > posizione(db, bersaglio, space_id)
+
+
+def non_letti(db, user_id, channel_id):
+    r = uno(db, """
+        SELECT COUNT(*) AS n FROM messages m
+        WHERE m.channel_id = %s
+          AND m.deleted_at IS NULL
+          AND m.author_id <> %s
+          AND m.id > COALESCE(
+              (SELECT last_read_msg_id FROM read_state
+               WHERE user_id = %s AND channel_id = %s), 0)
+    """, (channel_id, user_id, user_id, channel_id))
+    return r["n"]
+
+
+def canali_visibili(db, user_id, space_id):
+    out = []
+    for ch in tutti(db, """SELECT id, name, topic FROM channels
+                           WHERE space_id = %s ORDER BY "position", id""",
+                    (space_id,)):
+        p = permessi(db, user_id, space_id, ch["id"])
+        out.append({
+            "id": ch["id"],
+            "name": ch["name"],
+            "topic": ch["topic"],
+            "can_write": bool(p & SEND_MESSAGES),
+            "unread": non_letti(db, user_id, ch["id"]),
         })
-    socketio.emit('update_users', users, room=room)
+    return out
 
-def emit_channels(room, sid=None):
-    channels = []
-    target_sid = sid
-    for ch_name, ch_data in rooms_channels[room].items():
-        # mostra solo canali leggibili
-        if sid and not can_read(room, sid, ch_name):
-            continue
-        channels.append({"name": ch_name, "write": ch_data.get("write", ["all"])})
 
-    if sid:
-        socketio.emit('update_channels', channels, room=sid)
-    else:
-        # manda a tutti, filtrato per ruolo
-        for s in rooms_users.get(room, {}):
-            visible = []
-            for ch_name, ch_data in rooms_channels[room].items():
-                if can_read(room, s, ch_name):
-                    visible.append({"name": ch_name, "write": ch_data.get("write", ["all"])})
-            socketio.emit('update_channels', visible, room=s)
+def segna_letto(db, user_id, channel_id):
+    db.execute("""
+        INSERT INTO read_state (user_id, channel_id, last_read_msg_id)
+        VALUES (%s, %s, COALESCE((SELECT MAX(id) FROM messages
+                                  WHERE channel_id = %s), 0))
+        ON CONFLICT (user_id, channel_id) DO UPDATE
+          SET last_read_msg_id = EXCLUDED.last_read_msg_id,
+              updated_at = now()
+    """, (user_id, channel_id, channel_id))
 
-# ---------- AUTH ----------
 
-@app.route('/')
+# =========================================================
+# SUPERSTANZE
+# =========================================================
+
+def codice_libero(db):
+    while True:
+        code = "".join(random.choices(string.digits, k=6))
+        if not uno(db, "SELECT 1 FROM spaces WHERE code = %s", (code,)):
+            return code
+
+
+def crea_space(db, nome, owner_id, code=None):
+    code = code or codice_libero(db)
+    space_id = inserisci(db, """INSERT INTO spaces (code, name, owner_id)
+                                VALUES (%s, %s, %s) RETURNING id""",
+                         (code, nome, owner_id))
+
+    rid = {}
+    for nome_r, colore, perms, pos, dflt in RUOLI_DEFAULT:
+        rid[nome_r] = inserisci(db, """
+            INSERT INTO roles (space_id, name, color, permissions, "position", is_default)
+            VALUES (%s,%s,%s,%s,%s,%s) RETURNING id""",
+            (space_id, nome_r, colore, perms, pos, dflt))
+
+    db.execute("""INSERT INTO channels (space_id, name, "position")
+                  VALUES (%s, 'general', 0)""", (space_id,))
+    db.execute("INSERT INTO members (space_id, user_id) VALUES (%s, %s)",
+               (space_id, owner_id))
+    db.execute("""INSERT INTO member_roles (space_id, user_id, role_id)
+                  VALUES (%s,%s,%s)""", (space_id, owner_id, rid["owner"]))
+    return space_id, code
+
+
+def entra_space(db, space_id, user_id):
+    if uno(db, "SELECT 1 FROM members WHERE space_id=%s AND user_id=%s",
+           (space_id, user_id)):
+        return False
+    db.execute("INSERT INTO members (space_id, user_id) VALUES (%s,%s)",
+               (space_id, user_id))
+    r = uno(db, "SELECT id FROM roles WHERE space_id=%s AND is_default", (space_id,))
+    if r:
+        db.execute("""INSERT INTO member_roles (space_id, user_id, role_id)
+                      VALUES (%s,%s,%s)""", (space_id, user_id, r["id"]))
+    return True
+
+
+def ban_attivo(db, space_id, user_id):
+    b = uno(db, "SELECT expire FROM bans WHERE space_id=%s AND user_id=%s",
+            (space_id, user_id))
+    if not b:
+        return False
+    if b["expire"] is None or b["expire"] > ora():
+        return True
+    db.execute("DELETE FROM bans WHERE space_id=%s AND user_id=%s",
+               (space_id, user_id))
+    return False
+
+
+# =========================================================
+# ROTTE
+# =========================================================
+
+def utente_corrente():
+    return session.get("user_id")
+
+
+@app.route("/")
 def home():
-    if 'username' in session:
-        return redirect(url_for('lobby'))
+    if utente_corrente():
+        return redirect(url_for("lobby"))
     return render_template("home.html")
 
-@app.route('/register', methods=['GET', 'POST'])
+
+@app.route("/register", methods=["GET", "POST"])
 def register():
     error = None
-    if request.method == 'POST':
-        username = request.form['username'].strip()
-        password = request.form['password'].strip()
-        if not username or not password:
+    if request.method == "POST":
+        u = request.form["username"].strip()
+        p = request.form["password"].strip()
+        if not u or not p:
             error = "Compila tutti i campi."
+        elif len(u) > 32:
+            error = "Nome utente troppo lungo (max 32)."
         else:
-            conn = get_db()
-            c = conn.cursor()
             try:
-                c.execute("INSERT INTO users (username, password) VALUES (?, ?)",
-                    (username, generate_password_hash(password)))
-                conn.commit()
-                session['username'] = username
-                conn.close()
-                return redirect(url_for('lobby'))
-            except sqlite3.IntegrityError:
+                with get_db() as db:
+                    uid = inserisci(db, """INSERT INTO users (username, password)
+                                           VALUES (%s,%s) RETURNING id""",
+                                    (u, generate_password_hash(p)))
+                session["user_id"] = uid
+                session["username"] = u
+                return redirect(url_for("lobby"))
+            except psycopg.errors.UniqueViolation:
                 error = "Username già in uso."
-            finally:
-                conn.close()
     return render_template("register.html", error=error)
 
-@app.route('/login', methods=['GET', 'POST'])
+
+@app.route("/login", methods=["GET", "POST"])
 def login():
     error = None
-    if request.method == 'POST':
-        username = request.form['username'].strip()
-        password = request.form['password'].strip()
-        conn = get_db()
-        c = conn.cursor()
-        c.execute("SELECT * FROM users WHERE username=?", (username,))
-        user = c.fetchone()
-        conn.close()
-        if user and check_password_hash(user['password'], password):
-            session['username'] = user['username']
-            return redirect(url_for('lobby'))
-        else:
-            error = "Credenziali errate."
+    if request.method == "POST":
+        with get_db() as db:
+            user = uno(db, "SELECT * FROM users WHERE lower(username)=%s",
+                       (request.form["username"].strip().lower(),))
+        if user and check_password_hash(user["password"],
+                                        request.form["password"].strip()):
+            session["user_id"] = user["id"]
+            session["username"] = user["username"]
+            return redirect(url_for("lobby"))
+        error = "Credenziali errate."
     return render_template("login.html", error=error)
 
-@app.route('/logout')
+
+@app.route("/logout")
 def logout():
     session.clear()
-    return redirect(url_for('home'))
+    return redirect(url_for("home"))
 
-@app.route('/lobby', methods=['GET', 'POST'])
+
+@app.route("/lobby", methods=["GET", "POST"])
 def lobby():
-    if 'username' not in session:
-        return redirect(url_for('home'))
-    if request.method == 'POST':
-        room = request.form['room']
-        return redirect(url_for('chat', room=room))
-    return render_template("lobby.html", username=session['username'])
+    uid = utente_corrente()
+    if not uid:
+        return redirect(url_for("home"))
 
-@app.route('/chat/<room>')
-def chat(room):
-    if 'username' not in session:
-        return redirect(url_for('home'))
-    username = session['username']
-    conn = get_db()
-    c = conn.cursor()
-    c.execute("SELECT * FROM bans WHERE room=? AND user_id=?", (room, username.lower()))
-    ban = c.fetchone()
-    conn.close()
-    if ban and ban['expire'] > time.time():
-        return redirect(url_for('lobby', banned=1))
-    elif ban:
-        conn = get_db()
-        c = conn.cursor()
-        c.execute("DELETE FROM bans WHERE room=? AND user_id=?", (room, username.lower()))
-        conn.commit()
-        conn.close()
-    return render_template('chat.html', username=username, room=room)
+    error = None
+    with get_db() as db:
+        if request.method == "POST":
+            azione = request.form.get("azione")
 
-# ---------- SOCKET ----------
+            if azione == "crea":
+                nome = request.form.get("nome", "").strip()
+                if not nome:
+                    error = "Dai un nome alla superstanza."
+                else:
+                    _, code = crea_space(db, nome[:60], uid)
+                    return redirect(url_for("chat", code=code))
 
-@socketio.on('join')
-def handle_join(data):
-    username = data['username']
-    room = data['room']
+            elif azione == "entra":
+                code = request.form.get("code", "").strip()
+                sp = uno(db, "SELECT * FROM spaces WHERE code=%s", (code,))
+                if not sp:
+                    error = "Nessuna superstanza con questo codice."
+                elif ban_attivo(db, sp["id"], uid):
+                    return redirect(url_for("lobby", banned=1))
+                else:
+                    entra_space(db, sp["id"], uid)
+                    return redirect(url_for("chat", code=code))
+
+        stanze = tutti(db, """
+            SELECT s.code, s.name,
+                   (SELECT COUNT(*) FROM members WHERE space_id=s.id) AS membri
+            FROM spaces s
+            JOIN members m ON m.space_id = s.id
+            WHERE m.user_id = %s
+            ORDER BY s.name
+        """, (uid,))
+
+    return render_template("lobby.html", username=session.get("username"),
+                           stanze=stanze, error=error)
+
+
+@app.route("/chat/<code>")
+def chat(code):
+    uid = utente_corrente()
+    if not uid:
+        return redirect(url_for("home"))
+
+    with get_db() as db:
+        sp = uno(db, "SELECT * FROM spaces WHERE code=%s", (code,))
+        if not sp:
+            return redirect(url_for("lobby"))
+        if ban_attivo(db, sp["id"], uid):
+            return redirect(url_for("lobby", banned=1))
+        entra_space(db, sp["id"], uid)
+
+    return render_template("chat.html", username=session["username"],
+                           space_name=sp["name"], code=sp["code"])
+
+
+@app.route("/api/messages/<int:channel_id>")
+def api_messages(channel_id):
+    """Cronologia paginata all'indietro. before=<id> per il 'carica altri'."""
+    uid = utente_corrente()
+    if not uid:
+        abort(401)
+
+    before = request.args.get("before", type=int)
+    limite = min(request.args.get("limit", 50, type=int), 100)
+
+    with get_db() as db:
+        ch = uno(db, "SELECT * FROM channels WHERE id=%s", (channel_id,))
+        if not ch or not uno(db, """SELECT 1 FROM members
+                                    WHERE space_id=%s AND user_id=%s""",
+                             (ch["space_id"], uid)):
+            abort(403)
+
+        sql = """SELECT m.id, m.content, m.created_at, m.edited_at,
+                        u.id AS uid, u.username,
+                        (SELECT r.color FROM member_roles mr
+                         JOIN roles r ON r.id = mr.role_id
+                         WHERE mr.user_id = u.id AND mr.space_id = %s
+                         ORDER BY r."position" DESC LIMIT 1) AS color
+                 FROM messages m
+                 LEFT JOIN users u ON u.id = m.author_id
+                 WHERE m.channel_id = %s AND m.deleted_at IS NULL"""
+        par = [ch["space_id"], channel_id]
+        if before:
+            sql += " AND m.id < %s"
+            par.append(before)
+        sql += " ORDER BY m.id DESC LIMIT %s"
+        par.append(limite)
+
+        righe = tutti(db, sql, par)
+
+    return jsonify([{
+        "id": r["id"],
+        "username": r["username"] or "utente eliminato",
+        "msg": r["content"],
+        "color": r["color"] or "#cccccc",
+        "ts": ts(r["created_at"]),
+        "own": r["uid"] == uid,
+    } for r in reversed(righe)])
+
+
+# =========================================================
+# SOCKET
+# =========================================================
+
+def utenti_stanza(db, space_id):
+    connessi = set(online.get(space_id, {}).values())
+    righe = tutti(db, """
+        SELECT u.id, u.username,
+               (SELECT r.color FROM member_roles mr JOIN roles r ON r.id=mr.role_id
+                WHERE mr.user_id=u.id AND mr.space_id=%s
+                ORDER BY r."position" DESC LIMIT 1) AS color,
+               (SELECT r.name FROM member_roles mr JOIN roles r ON r.id=mr.role_id
+                WHERE mr.user_id=u.id AND mr.space_id=%s
+                ORDER BY r."position" DESC LIMIT 1) AS role
+        FROM members m JOIN users u ON u.id=m.user_id
+        WHERE m.space_id=%s
+    """, (space_id, space_id, space_id))
+
+    out = [{"id": r["id"], "username": r["username"],
+            "color": r["color"] or "#cccccc", "role": r["role"] or "user",
+            "online": r["id"] in connessi} for r in righe]
+    out.sort(key=lambda u: (not u["online"], u["username"].lower()))
+    return out
+
+
+def manda_utenti(space_id):
+    with get_db() as db:
+        dati = utenti_stanza(db, space_id)
+    for sid in list(online.get(space_id, {})):
+        socketio.emit("update_users", dati, room=sid)
+
+
+def manda_canali(space_id, solo_sid=None):
+    """Per utente: la visibilità dei canali dipende dai ruoli."""
+    bersagli = ([(solo_sid, online.get(space_id, {}).get(solo_sid))]
+                if solo_sid else list(online.get(space_id, {}).items()))
+    with get_db() as db:
+        for sid, uid in bersagli:
+            if uid:
+                socketio.emit("update_channels",
+                              canali_visibili(db, uid, space_id), room=sid)
+
+
+def sistema(msg, sid=None, space_id=None):
+    dati = {"type": "system", "msg": msg}
+    if sid:
+        socketio.emit("message", dati, room=sid)
+    elif space_id:
+        for s in list(online.get(space_id, {})):
+            socketio.emit("message", dati, room=s)
+
+
+@socketio.on("join")
+def on_join(data):
+    uid = session.get("user_id")
+    if not uid:
+        emit("message", {"type": "system", "msg": "Sessione scaduta, ricarica."})
+        return
+
     sid = request.sid
+    with get_db() as db:
+        sp = uno(db, "SELECT * FROM spaces WHERE code=%s", (str(data.get("code")),))
+        if not sp:
+            return
 
-    conn = get_db()
-    c = conn.cursor()
-    c.execute("SELECT * FROM bans WHERE room=? AND user_id=?", (room, username.lower()))
-    ban = c.fetchone()
-    conn.close()
+        space_id = sp["id"]
+        if ban_attivo(db, space_id, uid):
+            emit("message", {"type": "banned", "msg": "Sei bannato da questa stanza."})
+            return
 
-    if ban and ban['expire'] > time.time():
-        emit("message", {"type": "system", "msg": "Sei bannato da questa stanza."}, room=sid)
-        return
-    elif ban:
-        conn = get_db()
-        c = conn.cursor()
-        c.execute("DELETE FROM bans WHERE room=? AND user_id=?", (room, username.lower()))
-        conn.commit()
-        conn.close()
+        entra_space(db, space_id, uid)
 
-    welcomeMsg = choice(welcomes)
+        online.setdefault(space_id, {})[sid] = uid
+        sid_space[sid] = space_id
+        join_room(space_id)
 
-    if room not in rooms_users:
-        rooms_users[room] = {}
-        rooms_roles[room] = {}
-        init_roles(room)
-        init_channels(room)
+        ch = uno(db, """SELECT id, name FROM channels WHERE space_id=%s
+                        ORDER BY "position", id LIMIT 1""", (space_id,))
+        sid_channel[sid] = ch["id"]
+        segna_letto(db, uid, ch["id"])
 
-    rooms_users[room][sid] = username
-    rooms_user_channel[room][sid] = "general"
+    username = session.get("username")
+    # annuncio solo se non era già connesso da un'altra scheda
+    altri = [s for s, u in online[space_id].items() if u == uid and s != sid]
+    if not altri:
+        sistema(f"{username}{random.choice(WELCOMES)}", space_id=space_id)
 
-    if "owner" not in rooms_roles[room].values():
-        rooms_roles[room][sid] = "owner"
-    else:
-        rooms_roles[room][sid] = "user"
+    emit("set_channel", {"channel_id": ch["id"], "channel": ch["name"]}, room=sid)
+    manda_canali(space_id, solo_sid=sid)
+    manda_utenti(space_id)
 
-    join_room(room)
 
-    send({'type': 'system', 'msg': f"{username}{welcomeMsg}"}, room=room)
-    emit_users(room)
-    emit_channels(room, sid)
-    emit('set_channel', {'channel': 'general'}, room=sid)
-
-@socketio.on('switch_channel')
-def handle_switch_channel(data):
-    room = data['room']
-    channel = data['channel']
+@socketio.on("switch_channel")
+def on_switch(data):
+    uid = session.get("user_id")
     sid = request.sid
-
-    if channel not in rooms_channels.get(room, {}):
-        emit('message', {'type': 'system', 'msg': 'Canale non trovato.'}, room=sid)
+    space_id = sid_space.get(sid)
+    if not uid or not space_id:
         return
 
-    if not can_read(room, sid, channel):
-        emit('message', {'type': 'system', 'msg': 'Non hai accesso a questo canale.'}, room=sid)
-        return
+    with get_db() as db:
+        ch = uno(db, "SELECT * FROM channels WHERE id=%s AND space_id=%s",
+                 (data.get("channel_id"), space_id))
+        if not ch:
+            return sistema("Canale non trovato.", sid=sid)
 
-    rooms_user_channel[room][sid] = channel
-    emit('set_channel', {'channel': channel}, room=sid)
-    emit('message', {'type': 'system', 'msg': f'Sei entrato in #{channel}'}, room=sid)
+        if sid_channel.get(sid):
+            segna_letto(db, uid, sid_channel[sid])
+        sid_channel[sid] = ch["id"]
+        segna_letto(db, uid, ch["id"])
 
-@socketio.on('message')
-def handle_messages(data):
-    username = data['username']
-    room = data['room']
-    msg = data['msg']
+    emit("set_channel", {"channel_id": ch["id"], "channel": ch["name"]}, room=sid)
+    manda_canali(space_id, solo_sid=sid)
+
+
+@socketio.on("message")
+def on_message(data):
+    uid = session.get("user_id")
     sid = request.sid
-
-    role = rooms_roles[room].get(sid, "user")
-    role_defs = rooms_role_defs[room]
-
-    # permesso manage_channels: owner o chi ce l'ha nel ruolo
-    def has_manage():
-        if role == "owner":
-            return True
-        return "manage_channels" in role_defs.get(role, {}).get("permissions", [])
-
-    # ---- COMANDI ----
-
-    if msg.startswith("/newchannel "):
-        if not has_manage():
-            send({"type": "system", "msg": "Non hai i permessi per creare canali."}, room=sid)
-            return
-        ch_name = msg.split(" ", 1)[1].strip().lower().replace(" ", "-")
-        if ch_name in rooms_channels[room]:
-            send({"type": "system", "msg": "Canale già esistente."}, room=sid)
-            return
-        rooms_channels[room][ch_name] = {"write": ["all"], "read": ["all"]}
-        send({"type": "system", "msg": f"Canale #{ch_name} creato!"}, room=room)
-        emit_channels(room)
+    space_id = sid_space.get(sid)
+    if not uid or not space_id:
         return
 
-    if msg.startswith("/delchannel "):
-        if not has_manage():
-            send({"type": "system", "msg": "Non hai i permessi per eliminare canali."}, room=sid)
-            return
-        ch_name = msg.split(" ", 1)[1].strip().lower()
-        if ch_name == "general":
-            send({"type": "system", "msg": "Non puoi eliminare #general."}, room=sid)
-            return
-        if ch_name not in rooms_channels[room]:
-            send({"type": "system", "msg": "Canale non trovato."}, room=sid)
-            return
-        del rooms_channels[room][ch_name]
-        # rimanda tutti in general se erano in quel canale
-        for s, ch in rooms_user_channel[room].items():
-            if ch == ch_name:
-                rooms_user_channel[room][s] = "general"
-                socketio.emit('set_channel', {'channel': 'general'}, room=s)
-                socketio.emit('message', {'type': 'system', 'msg': f'#{ch_name} è stato eliminato. Sei stato spostato in #general.'}, room=s)
-        send({"type": "system", "msg": f"Canale #{ch_name} eliminato."}, room=room)
-        emit_channels(room)
+    msg = (data.get("msg") or "").strip()
+    if not msg:
+        return
+    if len(msg) > 2000:
+        return sistema("Messaggio troppo lungo (max 2000).", sid=sid)
+
+    if msg.startswith("/"):
+        return comando(uid, sid, space_id, msg)
+
+    channel_id = sid_channel.get(sid)
+
+    with get_db() as db:
+        if not puo(db, uid, space_id, SEND_MESSAGES, channel_id):
+            return sistema("Non puoi scrivere in questo canale.", sid=sid)
+
+        riga = uno(db, """INSERT INTO messages (channel_id, author_id, content)
+                          VALUES (%s,%s,%s) RETURNING id, created_at""",
+                   (channel_id, uid, msg))
+        c = uno(db, """SELECT r.color FROM member_roles mr
+                       JOIN roles r ON r.id=mr.role_id
+                       WHERE mr.user_id=%s AND mr.space_id=%s
+                       ORDER BY r."position" DESC LIMIT 1""", (uid, space_id))
+        colore = c["color"] if c else "#cccccc"
+        segna_letto(db, uid, channel_id)
+
+        payload = {"type": "chat", "id": riga["id"], "username": session.get("username"),
+                   "msg": msg, "color": colore, "channel_id": channel_id,
+                   "ts": ts(riga["created_at"])}
+
+        # chi guarda il canale riceve il messaggio, gli altri solo il badge
+        for s, u in list(online.get(space_id, {}).items()):
+            if sid_channel.get(s) == channel_id:
+                socketio.emit("message", {**payload, "own": u == uid}, room=s)
+                if u != uid:
+                    segna_letto(db, u, channel_id)
+            else:
+                socketio.emit("update_channels",
+                              canali_visibili(db, u, space_id), room=s)
+
+
+# ---------------------------------------------------------
+# COMANDI
+# ---------------------------------------------------------
+
+def comando(uid, sid, space_id, msg):
+    parti = msg.split(" ", 2)
+    cmd = parti[0].lower()
+
+    with get_db() as db:
+
+        # ---- canali ----
+        if cmd == "/newchannel":
+            if not puo(db, uid, space_id, MANAGE_CHANNELS):
+                return sistema("Non hai i permessi per creare canali.", sid=sid)
+            if len(parti) < 2:
+                return sistema("Uso: /newchannel <nome>", sid=sid)
+            nome = parti[1].strip().lower().replace(" ", "-")[:32]
+            try:
+                db.execute("""INSERT INTO channels (space_id, name, "position")
+                    VALUES (%s,%s,(SELECT COALESCE(MAX("position"),0)+1
+                                   FROM channels WHERE space_id=%s))""",
+                    (space_id, nome, space_id))
+            except psycopg.errors.UniqueViolation:
+                return sistema("Canale già esistente.", sid=sid)
+            sistema(f"Canale #{nome} creato.", space_id=space_id)
+            return manda_canali(space_id)
+
+        if cmd == "/delchannel":
+            if not puo(db, uid, space_id, MANAGE_CHANNELS):
+                return sistema("Non hai i permessi.", sid=sid)
+            if len(parti) < 2:
+                return sistema("Uso: /delchannel <nome>", sid=sid)
+            nome = parti[1].strip().lower()
+            ch = uno(db, "SELECT * FROM channels WHERE space_id=%s AND name=%s",
+                     (space_id, nome))
+            if not ch:
+                return sistema("Canale non trovato.", sid=sid)
+            n = uno(db, "SELECT COUNT(*) AS n FROM channels WHERE space_id=%s",
+                    (space_id,))["n"]
+            if n <= 1:
+                return sistema("Non puoi eliminare l'ultimo canale.", sid=sid)
+
+            primo = uno(db, """SELECT id, name FROM channels
+                               WHERE space_id=%s AND id<>%s
+                               ORDER BY "position", id LIMIT 1""",
+                        (space_id, ch["id"]))
+            db.execute("DELETE FROM channels WHERE id=%s", (ch["id"],))
+
+            for s in list(online.get(space_id, {})):
+                if sid_channel.get(s) == ch["id"]:
+                    sid_channel[s] = primo["id"]
+                    socketio.emit("set_channel",
+                                  {"channel_id": primo["id"], "channel": primo["name"]},
+                                  room=s)
+            sistema(f"Canale #{nome} eliminato (con tutti i suoi messaggi).",
+                    space_id=space_id)
+            return manda_canali(space_id)
+
+        # ---- ruoli ----
+        if cmd == "/role":
+            if not puo(db, uid, space_id, MANAGE_ROLES):
+                return sistema("Non hai i permessi per assegnare ruoli.", sid=sid)
+            if len(parti) < 3:
+                return sistema("Uso: /role <utente> <ruolo>", sid=sid)
+            target = uno(db, """SELECT u.id, u.username FROM users u
+                                JOIN members m ON m.user_id=u.id
+                                WHERE m.space_id=%s AND lower(u.username)=%s""",
+                         (space_id, parti[1].strip().lower()))
+            if not target:
+                return sistema("Utente non presente in questa stanza.", sid=sid)
+            ruolo = uno(db, "SELECT * FROM roles WHERE space_id=%s AND name=%s",
+                        (space_id, parti[2].strip().lower()))
+            if not ruolo:
+                return sistema("Ruolo inesistente.", sid=sid)
+            if not puo_agire_su(db, uid, target["id"], space_id):
+                return sistema("Non puoi modificare qualcuno di pari o superiore livello.",
+                               sid=sid)
+            if ruolo["position"] >= posizione(db, uid, space_id):
+                return sistema("Non puoi assegnare un ruolo pari o superiore al tuo.",
+                               sid=sid)
+
+            db.execute("DELETE FROM member_roles WHERE space_id=%s AND user_id=%s",
+                       (space_id, target["id"]))
+            db.execute("""INSERT INTO member_roles (space_id, user_id, role_id)
+                          VALUES (%s,%s,%s)""",
+                       (space_id, target["id"], ruolo["id"]))
+            sistema(f"{target['username']} ora è {ruolo['name']}.", space_id=space_id)
+            manda_utenti(space_id)
+            return manda_canali(space_id)
+
+        if cmd == "/newrole":
+            if not puo(db, uid, space_id, MANAGE_ROLES):
+                return sistema("Non hai i permessi.", sid=sid)
+            if len(parti) < 2:
+                return sistema("Uso: /newrole <nome>", sid=sid)
+            nome = parti[1].strip().lower()[:32]
+            if uno(db, "SELECT 1 FROM roles WHERE space_id=%s AND name=%s",
+                   (space_id, nome)):
+                return sistema("Ruolo già esistente.", sid=sid)
+            return socketio.emit("open_role_creator", {"role_name": nome}, room=sid)
+
+        if cmd == "/delrole":
+            if not puo(db, uid, space_id, MANAGE_ROLES):
+                return sistema("Non hai i permessi.", sid=sid)
+            if len(parti) < 2:
+                return sistema("Uso: /delrole <nome>", sid=sid)
+            nome = parti[1].strip().lower()
+            if nome in ("owner", "user"):
+                return sistema("Non puoi eliminare i ruoli owner e user.", sid=sid)
+            r = uno(db, "SELECT * FROM roles WHERE space_id=%s AND name=%s",
+                    (space_id, nome))
+            if not r:
+                return sistema("Ruolo non trovato.", sid=sid)
+            if r["position"] >= posizione(db, uid, space_id):
+                return sistema("Non puoi eliminare un ruolo pari o superiore al tuo.",
+                               sid=sid)
+
+            orfani = [x["user_id"] for x in
+                      tutti(db, "SELECT user_id FROM member_roles WHERE role_id=%s",
+                            (r["id"],))]
+            db.execute("DELETE FROM roles WHERE id=%s", (r["id"],))
+            dflt = uno(db, "SELECT id FROM roles WHERE space_id=%s AND is_default",
+                       (space_id,))
+            for o in orfani:
+                if dflt and not uno(db, """SELECT 1 FROM member_roles
+                                           WHERE space_id=%s AND user_id=%s""",
+                                    (space_id, o)):
+                    db.execute("""INSERT INTO member_roles (space_id, user_id, role_id)
+                                  VALUES (%s,%s,%s)""", (space_id, o, dflt["id"]))
+            sistema(f"Ruolo '{nome}' eliminato.", space_id=space_id)
+            manda_utenti(space_id)
+            return manda_canali(space_id)
+
+        # ---- moderazione ----
+        if cmd in ("/kick", "/ban"):
+            perm = KICK if cmd == "/kick" else BAN
+            if not puo(db, uid, space_id, perm):
+                return sistema("Non hai i permessi.", sid=sid)
+            if len(parti) < 2:
+                return sistema(f"Uso: {cmd} <utente>" +
+                               (" <secondi>" if cmd == "/ban" else ""), sid=sid)
+            target = uno(db, """SELECT u.id, u.username FROM users u
+                                JOIN members m ON m.user_id=u.id
+                                WHERE m.space_id=%s AND lower(u.username)=%s""",
+                         (space_id, parti[1].strip().lower()))
+            if not target:
+                return sistema("Utente non presente in questa stanza.", sid=sid)
+            if not puo_agire_su(db, uid, target["id"], space_id):
+                return sistema("Non puoi agire su qualcuno di pari o superiore livello.",
+                               sid=sid)
+
+            durata = None
+            if cmd == "/ban" and len(parti) > 2:
+                try:
+                    durata = int(parti[2])
+                except ValueError:
+                    return sistema("I secondi devono essere un numero.", sid=sid)
+
+            if cmd == "/ban":
+                scadenza = ora() + timedelta(seconds=durata) if durata else None
+                db.execute("""INSERT INTO bans (space_id, user_id, banned_by, expire)
+                              VALUES (%s,%s,%s,%s)
+                              ON CONFLICT (space_id, user_id) DO UPDATE
+                                SET expire = EXCLUDED.expire,
+                                    banned_by = EXCLUDED.banned_by""",
+                           (space_id, target["id"], uid, scadenza))
+            db.execute("DELETE FROM members WHERE space_id=%s AND user_id=%s",
+                       (space_id, target["id"]))
+
+            for s, u in list(online.get(space_id, {}).items()):
+                if u == target["id"]:
+                    socketio.emit("message",
+                                  {"type": "banned" if cmd == "/ban" else "kicked",
+                                   "msg": "Sei stato allontanato dalla stanza."}, room=s)
+                    online[space_id].pop(s, None)
+                    sid_channel.pop(s, None)
+                    sid_space.pop(s, None)
+
+            testo = (f"{target['username']} è stato cacciato." if cmd == "/kick"
+                     else f"{target['username']} è stato bannato" +
+                          (f" per {durata}s." if durata else " permanentemente."))
+            sistema(testo, space_id=space_id)
+            return manda_utenti(space_id)
+
+        if cmd == "/unban":
+            if not puo(db, uid, space_id, BAN):
+                return sistema("Non hai i permessi.", sid=sid)
+            if len(parti) < 2:
+                return sistema("Uso: /unban <utente>", sid=sid)
+            u = uno(db, "SELECT id, username FROM users WHERE lower(username)=%s",
+                    (parti[1].strip().lower(),))
+            if not u:
+                return sistema("Utente inesistente.", sid=sid)
+            db.execute("DELETE FROM bans WHERE space_id=%s AND user_id=%s",
+                       (space_id, u["id"]))
+            return sistema(f"{u['username']} è stato sbannato.", space_id=space_id)
+
+        if cmd == "/help":
+            return sistema("Comandi: /newchannel /delchannel /role /newrole "
+                           "/delrole /kick /ban /unban /help", sid=sid)
+
+        return sistema(f"Comando sconosciuto: {cmd}", sid=sid)
+
+
+@socketio.on("create_role")
+def on_create_role(data):
+    uid = session.get("user_id")
+    sid = request.sid
+    space_id = sid_space.get(sid)
+    if not uid or not space_id:
         return
 
-    if msg.startswith("/setchannel "):
-        # uso: /setchannel <canale> <write|read> <all|none|ruolo1,ruolo2>
-        if not has_manage():
-            send({"type": "system", "msg": "Non hai i permessi."}, room=sid)
+    nome = (data.get("role_name") or "").strip().lower()[:32]
+    colore = data.get("color") or "#cccccc"
+    if not nome:
+        return
+
+    with get_db() as db:
+        if not puo(db, uid, space_id, MANAGE_ROLES):
             return
         try:
-            parts = msg.split(" ", 3)
-            _, ch_name, perm_type, value = parts
-        except:
-            send({"type": "system", "msg": "Uso: /setchannel <canale> <write|read> <all|none|ruolo>"}, room=sid)
-            return
-        ch_name = ch_name.lower()
-        if ch_name not in rooms_channels[room]:
-            send({"type": "system", "msg": "Canale non trovato."}, room=sid)
-            return
-        if perm_type not in ["write", "read"]:
-            send({"type": "system", "msg": "Tipo permesso: write o read"}, room=sid)
-            return
-        if value == "all":
-            rooms_channels[room][ch_name][perm_type] = ["all"]
-        elif value == "none":
-            rooms_channels[room][ch_name][perm_type] = []
-        else:
-            roles_list = [r.strip() for r in value.split(",")]
-            rooms_channels[room][ch_name][perm_type] = roles_list
-        send({"type": "system", "msg": f"Permessi #{ch_name} aggiornati."}, room=room)
-        emit_channels(room)
-        return
+            db.execute("""INSERT INTO roles (space_id, name, color, permissions, "position")
+                          VALUES (%s,%s,%s,%s,1)""",
+                       (space_id, nome, colore, SEND_MESSAGES))
+        except psycopg.errors.UniqueViolation:
+            return sistema("Ruolo già esistente.", sid=sid)
 
-    if msg.startswith("/role "):
-        if role != "owner":
-            send({"type": "system", "msg": "Solo il proprietario può usare '/role'"}, room=sid)
-            return
-        try:
-            _, target_name, new_role = msg.split(" ", 2)
-        except:
-            send({"type": "system", "msg": "Uso: /role <utente> <ruolo>"}, room=sid)
-            return
-        if new_role not in rooms_role_defs[room]:
-            send({"type": "system", "msg": "Ruolo non valido"}, room=sid)
-            return
-        if new_role == "owner":
-            send({"type": "system", "msg": "Non puoi nominare qualcuno come erede al trono."}, room=sid)
-            return
-        target_sid = next((s for s, u in rooms_users[room].items() if u.strip().lower() == target_name.strip().lower()), None)
-        if not target_sid:
-            send({"type": "system", "msg": "Questo utente non esiste"}, room=sid)
-            return
-        rooms_roles[room][target_sid] = new_role
-        send({"type": "system", "msg": f"{target_name} ora è {new_role}"}, room=room)
-        emit_users(room)
-        emit_channels(room)
-        return
+    sistema(f"Ruolo '{nome}' creato.", space_id=space_id)
+    manda_utenti(space_id)
 
-    if msg.startswith("/kick "):
-        if role not in ["owner", "admin", "mod"]:
-            return
-        target_name = msg.split(" ", 1)[1]
-        target_sid = next((s for s, u in rooms_users[room].items() if u.lower() == target_name.lower()), None)
-        if not target_sid:
-            return
-        rooms_users[room].pop(target_sid, None)
-        rooms_roles[room].pop(target_sid, None)
-        rooms_user_channel[room].pop(target_sid, None)
-        send({"type": "system", "msg": "Sei stato cacciato dalla stanza."}, room=target_sid)
-        socketio.server.disconnect(target_sid)
-        send({"type": "system", "msg": f"{target_name} è stato cacciato."}, room=room)
-        emit_users(room)
-        return
 
-    if msg.startswith("/ban "):
-        if role not in ["owner", "admin"]:
-            return
-        try:
-            _, target_name, seconds = msg.split(" ", 2)
-            seconds = int(seconds)
-        except:
-            send({"type": "system", "msg": "Uso: /ban <utente> <secondi>"}, room=sid)
-            return
-        target_sid = next((s for s, u in rooms_users[room].items() if u.lower() == target_name.lower()), None)
-        if not target_sid:
-            return
-        conn = get_db()
-        c = conn.cursor()
-        c.execute("INSERT INTO bans VALUES (?, ?, ?)", (room, target_name.lower(), time.time() + seconds))
-        conn.commit()
-        conn.close()
-        send({"type": "banned", "msg": f"Sei stato bannato per {seconds}s."}, room=target_sid)
-        socketio.server.disconnect(target_sid)
-        send({"type": "system", "msg": f"{target_name} bannato per {seconds}s"}, room=room)
-        emit_users(room)
-        return
-
-    if msg.startswith("/newrole "):
-        if role != "owner":
-            send({"type": "system", "msg": "Solo il proprietario può creare ruoli."}, room=sid)
-            return
-        role_name = msg.split(" ", 1)[1].strip().lower()
-        if role_name in rooms_role_defs[room]:
-            send({"type": "system", "msg": "Questo ruolo esiste già."}, room=sid)
-            return
-        emit("open_role_creator", {"role_name": role_name}, room=sid)
-        return
-
-    if msg.startswith("/delrole "):
-        if role != "owner":
-            send({"type": "system", "msg": "Solo il proprietario può eliminare ruoli."}, room=sid)
-            return
-        role_name = msg.split(" ", 1)[1].strip().lower()
-        if role_name in ["owner", "admin", "mod", "user"]:
-            send({"type": "system", "msg": "Non puoi eliminare i ruoli predefiniti."}, room=sid)
-            return
-        if role_name not in rooms_role_defs[room]:
-            send({"type": "system", "msg": "Ruolo non trovato."}, room=sid)
-            return
-        del rooms_role_defs[room][role_name]
-        for s in rooms_roles[room]:
-            if rooms_roles[room][s] == role_name:
-                rooms_roles[room][s] = "user"
-        send({"type": "system", "msg": f"Ruolo '{role_name}' eliminato."}, room=room)
-        emit_users(room)
-        return
-
-    # ---- MESSAGGIO NORMALE ----
-    current_channel = rooms_user_channel[room].get(sid, "general")
-
-    if not can_write(room, sid, current_channel):
-        send({"type": "system", "msg": f"Non puoi scrivere in #{current_channel}."}, room=sid)
-        return
-
-    role_data = rooms_role_defs[room].get(role, {"color": "white"})
-    color = role_data["color"]
-
-    # manda solo a chi è nello stesso canale
-    for target_sid, target_channel in rooms_user_channel[room].items():
-        if target_channel == current_channel:
-            socketio.emit('message', {
-                'type': 'chat',
-                'username': username,
-                'msg': msg,
-                'color': color,
-                'channel': current_channel
-            }, room=target_sid)
-
-@socketio.on('create_role')
-def handle_create_role(data):
-    room = data['room']
-    role_name = data['role_name'].strip().lower()
-    color = data['color']
+@socketio.on("typing")
+def on_typing(data):
     sid = request.sid
-
-    role = rooms_roles[room].get(sid, "user")
-    if role != "owner":
+    space_id = sid_space.get(sid)
+    ch = sid_channel.get(sid)
+    if not space_id:
         return
-    if role_name in rooms_role_defs[room]:
-        emit("message", {"type": "system", "msg": "Ruolo già esistente."}, room=sid)
+    for s in list(online.get(space_id, {})):
+        if s != sid and sid_channel.get(s) == ch:
+            socketio.emit("typing", {"username": session.get("username"),
+                                     "typing": data.get("typing", False)}, room=s)
+
+
+@socketio.on("disconnect")
+def on_disconnect():
+    sid = request.sid
+    space_id = sid_space.pop(sid, None)
+    ch = sid_channel.pop(sid, None)
+    if not space_id:
         return
-    rooms_role_defs[room][role_name] = {"color": color, "permissions": []}
-    send({"type": "system", "msg": f"Ruolo '{role_name}' creato!"}, room=room)
-    emit_users(room)
 
-@socketio.on('typing')
-def handle_typing(data):
-    room = data['room']
-    username = data['username']
-    is_typing = data.get('typing', False)
-    channel = data.get('channel', 'general')
-    sid = request.sid
+    uid = online.get(space_id, {}).pop(sid, None)
 
-    for target_sid, target_channel in rooms_user_channel.get(room, {}).items():
-        if target_sid != sid and target_channel == channel:
-            socketio.emit('typing', {
-                'username': username,
-                'typing': is_typing,
-                'channel': channel
-            }, room=target_sid)
+    if uid:
+        with get_db() as db:
+            if ch:
+                segna_letto(db, uid, ch)
+            # annuncio d'uscita solo se non ha altre schede aperte
+            if uid not in online.get(space_id, {}).values():
+                u = uno(db, "SELECT username FROM users WHERE id=%s", (uid,))
+                if u:
+                    sistema(f"{u['username']} ha lasciato la stanza.",
+                            space_id=space_id)
 
-@socketio.on('disconnect')
-def handle_disconnect():
-    sid = request.sid
-    for room, users in list(rooms_users.items()):
-        if sid in users:
-            username = rooms_users[room].pop(sid)
-            rooms_roles[room].pop(sid, None)
-            rooms_user_channel[room].pop(sid, None)
-            send({'type': 'system', 'msg': f"{username} ha lasciato la stanza."}, room=room)
-            emit_users(room)
-            if len(rooms_users[room]) == 0:
-                del rooms_users[room]
-                del rooms_roles[room]
-                del rooms_role_defs[room]
-                del rooms_channels[room]
-                del rooms_user_channel[room]
+    manda_utenti(space_id)
+    if not online.get(space_id):
+        online.pop(space_id, None)
+
 
 if __name__ == "__main__":
-    socketio.run(app, debug=True, allow_unsafe_werkzeug=True, host='0.0.0.0', port=int(os.environ.get("PORT", 5000)))
+    socketio.run(app, debug=True, allow_unsafe_werkzeug=True,
+                 host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))

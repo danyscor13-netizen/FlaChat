@@ -1,231 +1,213 @@
+/* =========================================================
+   FlaChat — tema
+   Tutto il tema vive qui. Nessun CSS nei template.
+   Per cambiare i colori basta toccare :root qui sotto.
+   ========================================================= */
+
 :root {
-    --bg: #05070a;
-    --bg-soft: #081116;
-    --panel: rgba(9, 13, 18, 0.9);
-    --panel-strong: rgba(7, 10, 14, 0.96);
-    --line: rgba(255, 255, 255, 0.08);
-    --line-strong: rgba(255, 255, 255, 0.14);
-    --text: #edf3f7;
-    --muted: rgba(237, 243, 247, 0.64);
-    --faint: rgba(237, 243, 247, 0.42);
-    --accent: #31e6bd;
-    --accent-soft: rgba(49, 230, 189, 0.11);
-    --blue: #6aa8ff;
-    --danger: #ff5a72;
-    --warning: #ffd166;
-    --shadow: rgba(0, 0, 0, 0.44);
+    /* Superfici — dal più scuro al più chiaro */
+    --bg:        #16181d;   /* sfondo pagina */
+    --surface:   #1e2127;   /* pannelli */
+    --surface-2: #272b33;   /* hover, input */
+    --line:      #343943;   /* bordi */
+
+    /* Testo */
+    --text:  #e4e6ea;
+    --muted: #9aa0ab;
+
+    /* Accento — unico. Cambia questo e cambia tutto il sito. */
+    --accent:      #5b8dd9;
+    --accent-text: #ffffff;
+
+    /* Stati */
+    --danger:  #d9534f;
+    --warning: #d9a441;
+
+    --radius: 6px;
 }
 
-* {
-    box-sizing: border-box;
-}
-
-html {
-    min-height: 100%;
-}
+* { box-sizing: border-box; }
 
 body {
     min-height: 100vh;
     margin: 0;
-    padding: 22px;
-    color: var(--text);
-    font-family: Inter, "Segoe UI", Calibri, Arial, sans-serif;
+    padding: 20px;
     display: flex;
     justify-content: center;
     align-items: center;
-    background:
-        radial-gradient(circle at top, rgba(49, 230, 189, 0.08), transparent 34%),
-        linear-gradient(135deg, var(--bg), var(--bg-soft) 58%, #0b151a);
-    overflow-x: hidden;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    font-size: 15px;
+    line-height: 1.5;
 }
 
-/* Auth / lobby pages */
+/* ---------- Pagine semplici (home, login, register, lobby) ---------- */
+
 .container {
-    position: relative;
-    z-index: 1;
-    width: min(100%, 430px);
-    min-width: 0;
-    padding: 34px 30px;
+    width: min(100%, 400px);
+    padding: 32px 28px;
     text-align: center;
+    background: var(--surface);
     border: 1px solid var(--line);
-    border-radius: 8px;
-    background: var(--panel);
-    box-shadow: 0 24px 70px var(--shadow);
-    backdrop-filter: blur(18px);
+    border-radius: var(--radius);
 }
 
 .container h1,
 .container h2 {
-    margin: 0 0 14px;
-    font-size: clamp(2rem, 7vw, 2.8rem);
-    line-height: 1;
-    letter-spacing: 0;
+    margin: 0 0 8px;
+    font-size: 1.75rem;
+    font-weight: 600;
 }
 
 .container p {
-    margin: 10px 0 18px;
+    margin: 0 0 20px;
     color: var(--muted);
-    line-height: 1.5;
 }
 
-input,
-textarea,
-select {
+.container small { color: var(--muted); }
+
+/* ---------- Form ---------- */
+
+input, textarea, select {
     display: block;
     width: 100%;
-    margin: 12px auto;
-    padding: 13px 14px;
+    margin: 10px 0;
+    padding: 10px 12px;
+    background: var(--surface-2);
     border: 1px solid var(--line);
-    border-radius: 8px;
+    border-radius: var(--radius);
     color: var(--text);
-    background: rgba(255, 255, 255, 0.045);
     font: inherit;
     outline: none;
-    transition: border-color 0.18s, box-shadow 0.18s, background 0.18s;
 }
 
-input::placeholder,
-textarea::placeholder {
-    color: var(--faint);
+input::placeholder { color: var(--muted); }
+
+input:focus, textarea:focus, select:focus {
+    border-color: var(--accent);
 }
 
-input:focus,
-textarea:focus,
-select:focus {
-    border-color: rgba(49, 230, 189, 0.55);
-    background: rgba(255, 255, 255, 0.065);
-    box-shadow: 0 0 0 4px rgba(49, 230, 189, 0.09);
+input:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
 }
 
-button,
-.button {
+button, .button {
     display: inline-flex;
     align-items: center;
     justify-content: center;
     width: 100%;
-    min-height: 44px;
-    margin-top: 12px;
-    padding: 11px 17px;
-    border: 1px solid rgba(49, 230, 189, 0.34);
-    border-radius: 8px;
-    color: #dffff7;
-    background: rgba(49, 230, 189, 0.1);
-    box-shadow: none;
+    min-height: 40px;
+    margin-top: 8px;
+    padding: 10px 16px;
+    background: var(--accent);
+    border: none;
+    border-radius: var(--radius);
+    color: var(--accent-text);
     font: inherit;
-    font-weight: 750;
+    font-weight: 600;
     text-decoration: none;
     cursor: pointer;
-    transition: transform 0.16s, background 0.16s, border-color 0.16s;
 }
 
-button:hover,
-.button:hover {
-    transform: translateY(-1px);
-    border-color: rgba(49, 230, 189, 0.62);
-    background: rgba(49, 230, 189, 0.16);
+button:hover, .button:hover { filter: brightness(1.1); }
+button:active, .button:active { filter: brightness(0.95); }
+
+a { color: var(--accent); text-underline-offset: 3px; }
+
+/* ---------- Avvisi ---------- */
+
+.error, .warn {
+    margin: 0 0 16px;
+    padding: 10px 12px;
+    border-radius: var(--radius);
+    border-left: 3px solid var(--danger);
+    background: var(--surface-2);
+    text-align: left;
+    font-size: 0.9rem;
 }
 
-button:active,
-.button:active {
-    transform: translateY(1px) scale(0.99);
+.warn { border-left-color: var(--warning); }
+
+.warn h1 {
+    margin: 0 0 6px;
+    font-size: 0.85rem;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--warning);
 }
 
-a {
-    color: var(--text);
-    text-decoration-color: rgba(49, 230, 189, 0.44);
-    text-underline-offset: 4px;
-}
+.warn p { margin: 0; color: var(--muted); font-size: 0.88rem; }
 
-a:hover {
-    color: var(--accent);
-}
+/* ---------- Layout chat ---------- */
 
-.error,
-.warn {
-    margin: 0 0 14px;
-    padding: 11px 13px;
-    border: 1px solid rgba(255, 90, 114, 0.42);
-    border-radius: 8px;
-    color: #fff;
-    background: rgba(255, 90, 114, 0.1);
-    font-size: 0.95rem;
-    line-height: 1.35;
-}
-
-.warn {
-    border-color: rgba(255, 209, 102, 0.34);
-    background: rgba(255, 209, 102, 0.08);
-}
-
-/* Chat layout */
 .wrapper {
-    position: relative;
-    z-index: 1;
     display: grid;
     grid-template-columns: 180px minmax(0, 1fr) 190px;
-    gap: 14px;
-    width: min(96vw, 1180px);
-    height: min(86vh, 780px);
+    gap: 1px;                      /* le colonne si toccano: un solo blocco */
+    width: min(96vw, 1150px);
+    height: min(88vh, 800px);
+    background: var(--line);       /* il gap mostra questo = linee divisorie */
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    overflow: hidden;
 }
 
 .channels-sidebar,
 .chat-container,
 .sidebar {
-    border: 1px solid var(--line);
-    border-radius: 8px;
-    background: var(--panel);
-    box-shadow: 0 20px 60px rgba(0,0,0,0.38);
-    backdrop-filter: blur(18px);
+    background: var(--surface);
+    min-width: 0;
 }
 
 .channels-sidebar,
 .sidebar {
-    padding: 14px;
-    overflow: auto;
+    padding: 14px 10px;
+    overflow-y: auto;
 }
 
 .channels-sidebar h3,
 .sidebar h3 {
-    margin: 0 0 12px;
-    padding-bottom: 10px;
-    border-bottom: 1px solid var(--line);
-    color: rgba(237, 243, 247, 0.82);
-    font-size: 0.82rem;
+    margin: 0 0 10px;
+    padding: 0 6px;
+    color: var(--muted);
+    font-size: 0.72rem;
+    font-weight: 600;
     text-transform: uppercase;
-    letter-spacing: 0;
+    letter-spacing: 0.08em;
 }
 
+/* ---------- Canali ---------- */
+
 .channel-item {
-    margin-bottom: 7px;
-    padding: 9px 10px;
-    border: 1px solid transparent;
-    border-radius: 8px;
+    padding: 7px 10px;
+    margin-bottom: 2px;
+    border-radius: var(--radius);
     color: var(--muted);
-    background: transparent;
     cursor: pointer;
-    transition: background 0.16s, border-color 0.16s, color 0.16s;
+    font-size: 0.92rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 .channel-item:hover {
+    background: var(--surface-2);
     color: var(--text);
-    border-color: var(--line);
-    background: rgba(255,255,255,0.045);
 }
 
 .channel-item.active {
-    color: #eafffb;
-    border-color: rgba(49,230,189,0.34);
-    background: var(--accent-soft);
-    font-weight: 800;
+    background: var(--accent);
+    color: var(--accent-text);
+    font-weight: 600;
 }
 
-.channel-item.readonly {
-    opacity: 0.46;
-}
+.channel-item.readonly { opacity: 0.5; }
+
+/* ---------- Colonna centrale ---------- */
 
 .chat-container {
-    min-width: 0;
-    padding: 0;
     display: grid;
     grid-template-rows: auto minmax(0, 1fr) auto auto;
     overflow: hidden;
@@ -236,26 +218,21 @@ a:hover {
     justify-content: space-between;
     align-items: center;
     gap: 16px;
-    padding: 15px 18px;
+    padding: 12px 16px;
     border-bottom: 1px solid var(--line);
-    background: rgba(255,255,255,0.025);
 }
 
 .top-bar span {
     min-width: 0;
     color: var(--muted);
+    font-size: 0.9rem;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
 }
 
-.top-bar strong {
-    color: var(--text);
-}
-
-.top-bar small {
-    flex-shrink: 0;
-}
+.top-bar strong { color: var(--text); font-weight: 600; }
+.top-bar small { flex-shrink: 0; }
 
 .top-bar small a {
     color: var(--muted);
@@ -263,161 +240,107 @@ a:hover {
     text-decoration: none;
 }
 
-.top-bar small a:hover {
-    color: var(--accent);
-}
+.top-bar small a:hover { color: var(--text); }
 
-#current-channel-label {
-    color: var(--accent);
-    font-weight: 800;
-}
+#current-channel-label { color: var(--text); font-weight: 600; }
 
 #chat-box {
-    min-height: 0;
-    max-height: none;
-    margin: 0;
-    padding: 18px;
+    padding: 14px 16px;
     overflow-y: auto;
     text-align: left;
 }
 
-#chat-box::-webkit-scrollbar,
-.channels-sidebar::-webkit-scrollbar,
-.sidebar::-webkit-scrollbar {
-    width: 8px;
-}
+/* ---------- Messaggi ---------- */
 
-#chat-box::-webkit-scrollbar-thumb,
-.channels-sidebar::-webkit-scrollbar-thumb,
-.sidebar::-webkit-scrollbar-thumb {
-    border-radius: 8px;
-    background: rgba(255,255,255,0.12);
-}
-
-/* Messages */
 #chat-box p,
 #chat-box .msg-own,
 #chat-box .msg-other,
 #chat-box .msg-system {
     display: block;
     width: fit-content;
-    max-width: min(78%, 620px);
-    margin: 0 0 10px;
-    padding: 10px 12px;
-    border-radius: 8px;
-    line-height: 1.38;
-    box-shadow: none;
+    max-width: min(72%, 560px);
+    margin: 0 0 8px;
+    padding: 8px 11px;
+    border-radius: var(--radius);
+    word-wrap: break-word;
+    overflow-wrap: break-word;
 }
 
 #chat-box .msg-own {
     margin-left: auto;
-    margin-right: 0;
-    color: #051014;
-    background: linear-gradient(135deg, #31e6bd, #6aa8ff);
-    border: 1px solid rgba(49,230,189,0.34);
+    background: var(--accent);
+    color: var(--accent-text);
 }
 
 #chat-box .msg-other {
-    margin-left: 0;
     margin-right: auto;
-    color: var(--text);
-    background: rgba(255,255,255,0.055);
-    border: 1px solid var(--line);
+    background: var(--surface-2);
 }
 
 #chat-box .msg-system {
-    margin-left: auto;
-    margin-right: auto;
-    max-width: 90%;
-    color: var(--faint);
+    max-width: 100%;
+    margin: 8px auto;
+    padding: 4px 0;
+    background: none;
+    color: var(--muted);
     text-align: center;
-    font-style: italic;
-    background: rgba(255,255,255,0.035);
-    border: 1px solid rgba(255,255,255,0.055);
+    font-size: 0.84rem;
 }
 
 #chat-box .msg-name {
     display: block;
-    margin-bottom: 3px;
+    margin-bottom: 2px;
     font-size: 0.78rem;
-    font-weight: 800;
+    font-weight: 700;
 }
 
-/* Typing */
+/* Nel proprio messaggio il colore del ruolo sparirebbe sull'accento:
+   lo si tiene leggibile forzando il bianco. */
+#chat-box .msg-own .msg-name {
+    color: var(--accent-text) !important;
+    opacity: 0.85;
+}
+
+/* ---------- Sta scrivendo ---------- */
+
 #typing-indicator {
-    min-height: 24px;
-    padding: 0 16px 8px;
-    color: rgba(49,230,189,0.9);
-    font-size: 0.86rem;
+    min-height: 20px;
+    padding: 0 16px 4px;
+    color: var(--muted);
+    font-size: 0.82rem;
     font-style: italic;
     opacity: 0;
-    transition: opacity 0.18s;
 }
 
-#typing-indicator.visible {
-    opacity: 1;
-}
+#typing-indicator.visible { opacity: 1; }
 
-/* Message form */
+/* ---------- Barra invio ---------- */
+
 #message-form {
     display: flex;
-    align-items: center;
-    gap: 10px;
-    padding: 14px;
+    gap: 8px;
+    padding: 12px;
     border-top: 1px solid var(--line);
-    background: var(--panel-strong);
 }
 
 #message-form input {
     flex: 1;
-    display: block;
     width: auto;
-    height: 44px;
+    height: 40px;
     margin: 0;
-    padding: 0 14px;
-    border-radius: 8px;
-    border: 1px solid var(--line);
-    background: rgba(255,255,255,0.045);
-    color: white;
-    -webkit-text-fill-color: white;
-}
-
-#message-form input:focus {
-    border-color: rgba(49,230,189,0.55);
-    box-shadow: 0 0 0 4px rgba(49,230,189,0.08);
 }
 
 #send-button {
-    flex: 0 0 46px;
-    width: 46px;
-    height: 44px;
-    min-width: 46px;
-    min-height: 44px;
+    flex: 0 0 40px;
+    width: 40px;
+    height: 40px;
     margin: 0;
     padding: 0;
-    border-radius: 8px;
-    border: 1px solid rgba(49,230,189,0.34);
-    color: #dffff7;
-    background: rgba(49,230,189,0.1);
+    font-size: 1rem;
 }
 
-#send-button span {
-    display: block;
-    transform: translateX(1px);
-    font-size: 1.08rem;
-}
+/* ---------- Utenti online ---------- */
 
-#send-button:hover {
-    transform: translateY(-1px);
-    border-color: rgba(49,230,189,0.62);
-    background: rgba(49,230,189,0.16);
-}
-
-#send-button:active {
-    transform: translateY(1px) scale(0.98);
-}
-
-/* Users */
 #user-list {
     list-style: none;
     padding: 0;
@@ -427,99 +350,247 @@ a:hover {
 #user-list li {
     display: flex;
     align-items: center;
-    gap: 8px;
-    min-height: 34px;
-    margin-bottom: 7px;
-    padding: 7px 9px;
-    border-radius: 8px;
-    background: rgba(255,255,255,0.035);
-    border: 1px solid rgba(255,255,255,0.055);
-    font-size: 0.88rem;
-    font-weight: 750;
+    gap: 7px;
+    padding: 6px 8px;
+    border-radius: var(--radius);
+    font-size: 0.9rem;
+    font-weight: 500;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
+
+#user-list li:hover { background: var(--surface-2); }
 
 #user-list li::before {
     content: "";
+    flex-shrink: 0;
     width: 7px;
     height: 7px;
     border-radius: 50%;
-    background: currentColor;
-    box-shadow: 0 0 10px currentColor;
-    flex-shrink: 0;
+    background: currentColor;   /* prende il colore del ruolo */
 }
 
-/* Role creator modal */
-#role-creator {
-    background: rgba(0,0,0,0.68) !important;
-    backdrop-filter: blur(10px);
+/* ---------- Modali (creazione ruolo, ban) ---------- */
+
+.modal {
+    position: fixed;
+    inset: 0;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    background: rgba(0, 0, 0, 0.6);
+    z-index: 999;
 }
 
-#role-creator > div {
-    border: 1px solid var(--line-strong) !important;
-    border-radius: 8px !important;
-    background: var(--panel-strong) !important;
-    box-shadow: 0 24px 70px rgba(0,0,0,0.5);
+.modal-box {
+    width: min(90vw, 320px);
+    padding: 24px;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    text-align: center;
 }
 
-/* Mobile */
+.modal-box h3 { margin: 0 0 6px; font-size: 1.1rem; }
+.modal-box p  { margin: 0 0 16px; color: var(--muted); font-size: 0.9rem; }
+
+.modal-box label {
+    display: block;
+    margin-bottom: 10px;
+    color: var(--muted);
+    font-size: 0.85rem;
+}
+
+#role-color-picker {
+    width: 60px;
+    height: 60px;
+    margin: 0 auto 16px;
+    padding: 0;
+    background: none;
+    border: 1px solid var(--line);
+    border-radius: 50%;
+    cursor: pointer;
+}
+
+.modal-actions { display: flex; gap: 8px; }
+.modal-actions button { margin-top: 0; }
+
+.btn-secondary {
+    background: var(--surface-2);
+    color: var(--text);
+}
+
+/* ---------- Mobile ---------- */
+
 @media (max-width: 860px) {
-    body {
-        align-items: stretch;
-        padding: 10px;
-    }
+    body { padding: 0; align-items: stretch; }
 
     .wrapper {
         width: 100%;
-        height: calc(100vh - 20px);
+        height: 100vh;
+        border: none;
+        border-radius: 0;
         grid-template-columns: 1fr;
         grid-template-rows: auto minmax(0, 1fr) auto;
     }
 
     .channels-sidebar,
     .sidebar {
-        max-height: 128px;
+        max-height: 110px;
+        padding: 10px;
     }
 
-    .chat-container {
-        min-height: 360px;
+    /* Su mobile canali e utenti scorrono in orizzontale:
+       occupano una striscia invece di rubare metà schermo. */
+    #channel-list,
+    #user-list {
+        display: flex;
+        gap: 6px;
+        overflow-x: auto;
+    }
+
+    .channel-item,
+    #user-list li {
+        margin-bottom: 0;
+        flex-shrink: 0;
+        background: var(--surface-2);
     }
 
     #chat-box p,
     #chat-box .msg-own,
-    #chat-box .msg-other,
-    #chat-box .msg-system {
-        max-width: 88%;
-    }
+    #chat-box .msg-other { max-width: 85%; }
 
     .top-bar {
-        align-items: flex-start;
         flex-direction: column;
-        gap: 6px;
+        align-items: flex-start;
+        gap: 4px;
     }
 }
 
-@media (max-width: 520px) {
-    body {
-        padding: 8px;
-    }
+/* =========================================================
+   Superstanze permanenti — aggiunte
+   ========================================================= */
 
-    .container {
-        margin: auto 0;
-        padding: 28px 20px;
-    }
+/* ---------- Lobby: elenco stanze ---------- */
 
-    .wrapper {
-        height: calc(100vh - 16px);
-        gap: 10px;
-    }
-
-    #message-form {
-        padding: 10px;
-    }
-
-    #send-button {
-        flex-basis: 44px;
-        width: 44px;
-        min-width: 44px;
-    }
+.section-label {
+    margin: 22px 0 8px;
+    color: var(--muted);
+    font-size: 0.72rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    text-align: left;
 }
+
+.space-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.space-item {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 10px 12px;
+    background: var(--surface-2);
+    border: 1px solid transparent;
+    border-radius: var(--radius);
+    color: var(--text);
+    text-align: left;
+    text-decoration: none;
+}
+
+.space-item:hover { border-color: var(--accent); }
+
+.space-name { font-weight: 600; }
+
+.space-meta {
+    color: var(--muted);
+    font-size: 0.8rem;
+    font-variant-numeric: tabular-nums;
+}
+
+/* ---------- Chat: intestazione stanza ---------- */
+
+.space-header {
+    padding: 0 6px 12px;
+    margin-bottom: 12px;
+    border-bottom: 1px solid var(--line);
+    text-align: left;
+}
+
+.space-title {
+    font-weight: 600;
+    line-height: 1.3;
+    overflow-wrap: break-word;
+}
+
+.space-code {
+    margin-top: 2px;
+    color: var(--muted);
+    font-size: 0.78rem;
+    font-variant-numeric: tabular-nums;
+}
+
+/* ---------- Canali: badge non letti ---------- */
+
+.channel-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.channel-name {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.badge {
+    flex-shrink: 0;
+    min-width: 18px;
+    padding: 1px 5px;
+    border-radius: 9px;
+    background: var(--accent);
+    color: var(--accent-text);
+    font-size: 0.7rem;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    text-align: center;
+}
+
+/* Sul canale attivo lo sfondo è già l'accento: il badge va invertito */
+.channel-item.active .badge {
+    background: var(--accent-text);
+    color: var(--accent);
+}
+
+/* ---------- Membri: offline ---------- */
+/* Il pallino usa currentColor, quindi basta abbassare l'opacità
+   per spegnere nome e pallino insieme. */
+
+#user-list li.offline { opacity: 0.4; }
+
+/* ---------- Carica messaggi precedenti ---------- */
+
+.btn-link {
+    width: auto;
+    min-height: 0;
+    margin: 0 auto 12px;
+    padding: 5px 12px;
+    display: block;
+    background: var(--surface-2);
+    color: var(--muted);
+    border: 1px solid var(--line);
+    font-size: 0.82rem;
+    font-weight: 500;
+}
+
+.btn-link:hover { color: var(--text); filter: none; }
+
+#load-more { text-align: center; }

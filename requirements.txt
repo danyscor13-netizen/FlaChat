@@ -1,2 +1,9 @@
-flask
-flask_socketio
+Flask
+flask-socketio
+Werkzeug
+psycopg[binary,pool]
+
+# server di produzione: gevent + worker WebSocket
+gunicorn
+gevent
+gevent-websocket
