@@ -22,6 +22,8 @@ import string
 
 import psycopg
 from psycopg.rows import dict_row
+
+import menzioni
 from psycopg_pool import ConnectionPool
 
 app = Flask(__name__)
@@ -98,7 +100,7 @@ RUOLI_DEFAULT = [
     ("admin", "#e04b4b", SEND_MESSAGES | MANAGE_CHANNELS | KICK | BAN
                          | MANAGE_MESSAGES | MENTION_EVERYONE, 80, False),
     ("mod",   "#5b8dd9", SEND_MESSAGES | KICK | MANAGE_MESSAGES, 50, False),
-    ("user",  "#cccccc", SEND_MESSAGES, 0, True),
+    ("user",  "#cccccc", SEND_MESSAGES | MENTION_EVERYONE, 0, True),
 ]
 
 # =========================================================
@@ -440,6 +442,140 @@ def api_messages(channel_id):
     } for r in reversed(righe)])
 
 
+# ---------------------------------------------------------
+# API: menzioni e notifiche
+# ---------------------------------------------------------
+
+@app.route("/api/mentionables/<code>")
+def api_mentionables(code):
+    """Utenti e ruoli menzionabili, per l'autocomplete del client."""
+    uid = utente_corrente()
+    if not uid:
+        abort(401)
+
+    with get_db() as db:
+        sp = uno(db, "SELECT id FROM spaces WHERE code=%s", (code,))
+        if not sp or not uno(db, """SELECT 1 FROM members
+                                    WHERE space_id=%s AND user_id=%s""",
+                             (sp["id"], uid)):
+            abort(403)
+
+        utenti = tutti(db, """SELECT u.username AS nome,
+                                (SELECT r.color FROM member_roles mr
+                                 JOIN roles r ON r.id=mr.role_id
+                                 WHERE mr.user_id=u.id AND mr.space_id=%s
+                                 ORDER BY r."position" DESC LIMIT 1) AS colore
+                              FROM members m JOIN users u ON u.id=m.user_id
+                              WHERE m.space_id=%s ORDER BY u.username""",
+                     (sp["id"], sp["id"]))
+        ruoli = tutti(db, """SELECT name AS nome, color AS colore FROM roles
+                             WHERE space_id=%s AND mentionable
+                             ORDER BY "position" DESC""", (sp["id"],))
+        puo_ev = puo(db, uid, sp["id"], MENTION_EVERYONE)
+
+    out = [{"tipo": "utente", "nome": u["nome"],
+            "colore": u["colore"] or "#cccccc"} for u in utenti]
+    out += [{"tipo": "ruolo", "nome": r["nome"],
+             "colore": r["colore"]} for r in ruoli]
+    if puo_ev:
+        out += [{"tipo": "speciale", "nome": "everyone",
+                 "colore": "#f0b232", "desc": "tutti i membri"},
+                {"tipo": "speciale", "nome": "here",
+                 "colore": "#f0b232", "desc": "chi è online adesso"}]
+    return jsonify(out)
+
+
+@app.route("/api/push/key")
+def api_push_key():
+    """Chiave pubblica VAPID. Se manca, il client nasconde le notifiche."""
+    return jsonify({"key": menzioni.VAPID_PUBLIC,
+                    "attive": menzioni.push_attive})
+
+
+@app.route("/api/push/subscribe", methods=["POST"])
+def api_push_subscribe():
+    uid = utente_corrente()
+    if not uid:
+        abort(401)
+
+    d = request.get_json(silent=True) or {}
+    endpoint = d.get("endpoint")
+    chiavi = d.get("keys") or {}
+    if not endpoint or not chiavi.get("p256dh") or not chiavi.get("auth"):
+        return jsonify({"ok": False, "errore": "iscrizione incompleta"}), 400
+
+    with get_db() as db:
+        # stesso endpoint gia' presente: aggiorna, non duplicare
+        db.execute("""INSERT INTO push_subscriptions
+                        (user_id, endpoint, p256dh, auth, user_agent)
+                      VALUES (%s,%s,%s,%s,%s)
+                      ON CONFLICT (endpoint) DO UPDATE
+                        SET user_id=EXCLUDED.user_id,
+                            p256dh=EXCLUDED.p256dh,
+                            auth=EXCLUDED.auth""",
+                   (uid, endpoint, chiavi["p256dh"], chiavi["auth"],
+                    request.headers.get("User-Agent", "")[:200]))
+    return jsonify({"ok": True})
+
+
+@app.route("/api/push/unsubscribe", methods=["POST"])
+def api_push_unsubscribe():
+    uid = utente_corrente()
+    if not uid:
+        abort(401)
+    endpoint = (request.get_json(silent=True) or {}).get("endpoint")
+    with get_db() as db:
+        db.execute("""DELETE FROM push_subscriptions
+                      WHERE user_id=%s AND endpoint=%s""", (uid, endpoint))
+    return jsonify({"ok": True})
+
+
+@app.route("/api/notifications/<code>", methods=["GET", "POST"])
+def api_notifications(code):
+    """Legge e imposta il livello di notifica per una stanza."""
+    uid = utente_corrente()
+    if not uid:
+        abort(401)
+
+    with get_db() as db:
+        sp = uno(db, "SELECT id FROM spaces WHERE code=%s", (code,))
+        if not sp or not uno(db, """SELECT 1 FROM members
+                                    WHERE space_id=%s AND user_id=%s""",
+                             (sp["id"], uid)):
+            abort(403)
+
+        if request.method == "POST":
+            lv = (request.get_json(silent=True) or {}).get("level")
+            if lv not in (0, 1, 2):
+                return jsonify({"ok": False}), 400
+            db.execute("""INSERT INTO notification_prefs
+                            (user_id, space_id, channel_id, level)
+                          VALUES (%s,%s,NULL,%s)
+                          ON CONFLICT (user_id, space_id)
+                            WHERE channel_id IS NULL
+                          DO UPDATE SET level=EXCLUDED.level,
+                                        muted_until=NULL""",
+                       (uid, sp["id"], lv))
+            return jsonify({"ok": True, "level": lv})
+
+        r = uno(db, """SELECT level FROM notification_prefs
+                       WHERE user_id=%s AND space_id=%s AND channel_id IS NULL""",
+                (uid, sp["id"]))
+    return jsonify({"level": r["level"] if r else menzioni.MENZIONI})
+
+
+@app.route("/sw.js")
+def service_worker():
+    """
+    Servito dalla radice, non da /static: un service worker può
+    controllare solo le pagine nella sua cartella o sotto.
+    """
+    return app.send_static_file("sw.js"), 200, {
+        "Content-Type": "application/javascript",
+        "Service-Worker-Allowed": "/",
+    }
+
+
 # =========================================================
 # SOCKET
 # =========================================================
@@ -578,9 +714,19 @@ def on_message(data):
         if not puo(db, uid, space_id, SEND_MESSAGES, channel_id):
             return sistema("Non puoi scrivere in questo canale.", sid=sid)
 
-        riga = uno(db, """INSERT INTO messages (channel_id, author_id, content)
-                          VALUES (%s,%s,%s) RETURNING id, created_at""",
-                   (channel_id, uid, msg))
+        # --- menzioni: risolte prima dell'insert, per salvare i flag
+        puo_ev = puo(db, uid, space_id, MENTION_EVERYONE, channel_id)
+        m_utenti, m_ruoli, m_everyone, m_here = menzioni.risolvi(
+            db, space_id, msg, uid, puo_ev)
+
+        riga = uno(db, """INSERT INTO messages
+                            (channel_id, author_id, content,
+                             mentions_everyone, mentions_here)
+                          VALUES (%s,%s,%s,%s,%s)
+                          RETURNING id, created_at""",
+                   (channel_id, uid, msg, m_everyone, m_here))
+        menzioni.salva(db, riga["id"], m_utenti, m_ruoli)
+
         c = uno(db, """SELECT r.color FROM member_roles mr
                        JOIN roles r ON r.id=mr.role_id
                        WHERE mr.user_id=%s AND mr.space_id=%s
@@ -588,19 +734,78 @@ def on_message(data):
         colore = c["color"] if c else "#cccccc"
         segna_letto(db, uid, channel_id)
 
+        connessi = set(online.get(space_id, {}).values())
+        da_notificare = menzioni.destinatari(
+            db, space_id, channel_id, m_utenti, m_ruoli,
+            m_everyone, m_here, uid, connessi)
+
         payload = {"type": "chat", "id": riga["id"], "username": session.get("username"),
                    "msg": msg, "color": colore, "channel_id": channel_id,
                    "ts": ts(riga["created_at"])}
 
         # chi guarda il canale riceve il messaggio, gli altri solo il badge
+        visto_da = set()
         for s, u in list(online.get(space_id, {}).items()):
             if sid_channel.get(s) == channel_id:
-                socketio.emit("message", {**payload, "own": u == uid}, room=s)
+                socketio.emit("message",
+                              {**payload, "own": u == uid,
+                               "mention": u in da_notificare}, room=s)
                 if u != uid:
                     segna_letto(db, u, channel_id)
+                    visto_da.add(u)   # ha il canale aperto: niente push
             else:
                 socketio.emit("update_channels",
                               canali_visibili(db, u, space_id), room=s)
+
+        db.commit()
+        notifica_push(db, space_id, channel_id, uid, msg,
+                      da_notificare, visto_da)
+
+
+def notifica_push(db, space_id, channel_id, autore_id, testo,
+                  menzionati, gia_visto):
+    """
+    Decide chi merita una notifica e la manda.
+
+    Regole:
+      - chi ha il canale aperto adesso non riceve nulla (l'ha già letto)
+      - i menzionati ricevono se il livello e' MENZIONI o TUTTI
+      - gli altri membri solo se hanno chiesto TUTTI
+    """
+    if not menzioni.push_attive:
+        return
+
+    sp = uno(db, "SELECT name, code FROM spaces WHERE id=%s", (space_id,))
+    ch = uno(db, "SELECT name FROM channels WHERE id=%s", (channel_id,))
+    au = uno(db, "SELECT username FROM users WHERE id=%s", (autore_id,))
+    if not (sp and ch and au):
+        return
+
+    url = f"/chat/{sp['code']}"
+    anteprima = testo if len(testo) <= 120 else testo[:117] + "..."
+
+    candidati = set(menzionati)
+    for r in db.execute("SELECT user_id FROM members WHERE space_id=%s",
+                        (space_id,)).fetchall():
+        candidati.add(r["user_id"])
+    candidati.discard(autore_id)
+    candidati -= gia_visto
+
+    for u in candidati:
+        lv = menzioni.livello(db, u, space_id, channel_id)
+        if lv == menzioni.NIENTE:
+            continue
+        e_menzione = u in menzionati
+        if lv == menzioni.MENZIONI and not e_menzione:
+            continue
+        if not puo(db, u, space_id, SEND_MESSAGES, channel_id) \
+                and not puo(db, u, space_id, ADMIN):
+            continue   # non vede il canale, non ha senso notificarlo
+
+        titolo = (f"{au['username']} ti ha menzionato in #{ch['name']}"
+                  if e_menzione else f"{au['username']} in #{ch['name']}")
+        menzioni.invia(db, u, titolo, anteprima, url,
+                       tag=f"flachat-{channel_id}")
 
 
 # ---------------------------------------------------------
@@ -628,6 +833,10 @@ def comando(uid, sid, space_id, msg):
             except psycopg.errors.UniqueViolation:
                 return sistema("Canale già esistente.", sid=sid)
             sistema(f"Canale #{nome} creato.", space_id=space_id)
+            # commit prima di trasmettere: manda_canali/manda_utenti
+            # usano un'altra connessione del pool e non vedrebbero
+            # le scritture ancora aperte in questa transazione
+            db.commit()
             return manda_canali(space_id)
 
         if cmd == "/delchannel":
@@ -659,6 +868,10 @@ def comando(uid, sid, space_id, msg):
                                   room=s)
             sistema(f"Canale #{nome} eliminato (con tutti i suoi messaggi).",
                     space_id=space_id)
+            # commit prima di trasmettere: manda_canali/manda_utenti
+            # usano un'altra connessione del pool e non vedrebbero
+            # le scritture ancora aperte in questa transazione
+            db.commit()
             return manda_canali(space_id)
 
         # ---- ruoli ----
@@ -690,6 +903,10 @@ def comando(uid, sid, space_id, msg):
                           VALUES (%s,%s,%s)""",
                        (space_id, target["id"], ruolo["id"]))
             sistema(f"{target['username']} ora è {ruolo['name']}.", space_id=space_id)
+            # commit prima di trasmettere: manda_canali/manda_utenti
+            # usano un'altra connessione del pool e non vedrebbero
+            # le scritture ancora aperte in questa transazione
+            db.commit()
             manda_utenti(space_id)
             return manda_canali(space_id)
 
@@ -733,6 +950,10 @@ def comando(uid, sid, space_id, msg):
                     db.execute("""INSERT INTO member_roles (space_id, user_id, role_id)
                                   VALUES (%s,%s,%s)""", (space_id, o, dflt["id"]))
             sistema(f"Ruolo '{nome}' eliminato.", space_id=space_id)
+            # commit prima di trasmettere: manda_canali/manda_utenti
+            # usano un'altra connessione del pool e non vedrebbero
+            # le scritture ancora aperte in questa transazione
+            db.commit()
             manda_utenti(space_id)
             return manda_canali(space_id)
 
@@ -785,6 +1006,10 @@ def comando(uid, sid, space_id, msg):
                      else f"{target['username']} è stato bannato" +
                           (f" per {durata}s." if durata else " permanentemente."))
             sistema(testo, space_id=space_id)
+            # commit prima di trasmettere: manda_canali/manda_utenti
+            # usano un'altra connessione del pool e non vedrebbero
+            # le scritture ancora aperte in questa transazione
+            db.commit()
             return manda_utenti(space_id)
 
         if cmd == "/unban":

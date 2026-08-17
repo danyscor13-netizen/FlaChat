@@ -12,7 +12,12 @@ persistente. Flask + Socket.IO + Postgres.
 | `schema_postgres.sql` | schema del database, da eseguire su Supabase |
 | `templates/` | pagine HTML |
 | `static/style.css` | tutto il tema, in un solo file |
+| `menzioni.py` | parsing delle menzioni e invio push |
+| `static/sw.js` | service worker per le notifiche |
+| `genera_vapid.py` | genera le chiavi per le push (una volta sola) |
 | `test_app.py` | 22 test end-to-end |
+| `test_menzioni.py` | 38 test su menzioni e notifiche |
+| `check_js.py` | verifica la sintassi del JS nei template |
 | `render.yaml` | configurazione dell'hosting |
 | `DEPLOY.md` | istruzioni per il deploy su Render |
 
@@ -90,9 +95,36 @@ risposte punterebbero nel vuoto.
 /role <utente> <ruolo>
 ```
 
+## Menzioni
+
+`@utente`, `@ruolo`, `@everyone` (anche `@all`, `@tutti`) e `@here`,
+che raggiunge solo chi è connesso in quel momento.
+
+L'autocomplete si apre digitando `@`: frecce per scegliere, Invio o Tab
+per completare, Esc per chiudere. L'elenco si aggiorna quando entra
+qualcuno, quindi chi arriva dopo è subito menzionabile.
+
+`@everyone` e `@here` richiedono `MENTION_EVERYONE`, che il ruolo di
+default possiede: di base possono tutti, e lo si toglie con un `deny`
+sul ruolo o sul singolo canale.
+
+Le menzioni finiscono nella tabella `mentions`, una riga per bersaglio.
+Serve perché "dove sono stato citato" sia una query, e perché un cambio
+di username non invalidi le menzioni passate.
+
+## Notifiche push
+
+Tre livelli per stanza: tutti i messaggi, solo menzioni (default),
+nessuna. Chi ha il canale aperto non riceve nulla, perché ha già letto.
+
+Servono le chiavi VAPID (`genera_vapid.py`) e HTTPS. Gli endpoint che
+rispondono 404 o 410 vengono cancellati da soli: è così che lo standard
+comunica che l'utente ha revocato il permesso.
+
 ## Da fare
 
-- menzioni: `@utente`, `@ruolo`, `@here`, `@everyone`
-- notifiche push (le tabelle ci sono già)
 - pannello permessi grafico al posto dei comandi
+- rinomina ed eliminazione delle superstanze
+- stanze temporanee accanto a quelle permanenti
+- invio di file e immagini, sticker, GIF
 - `base.html` con `{% extends %}`: le pagine ripetono head e struttura

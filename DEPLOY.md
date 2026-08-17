@@ -72,6 +72,23 @@ Environment → Add Environment Variable:
 | `SECRET_KEY` | una stringa lunga e casuale |
 | `PYTHON_VERSION` | `3.12.3` |
 
+### Notifiche push (opzionali)
+
+Genera le chiavi una volta sola:
+
+```bash
+python genera_vapid.py
+```
+
+Aggiungi le tre variabili che stampa: `VAPID_PUBLIC_KEY`,
+`VAPID_PRIVATE_KEY`, `VAPID_CLAIM_EMAIL`.
+
+Senza queste FlaChat funziona lo stesso: il pannello notifiche dira'
+che non sono configurate. Se le rigeneri, tutte le iscrizioni esistenti
+smettono di funzionare.
+
+Le push richiedono HTTPS, che su Render c'e' gia'.
+
 Per generare la chiave:
 
 ```bash

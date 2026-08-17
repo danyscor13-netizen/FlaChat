@@ -21,6 +21,22 @@
         </div>
     </div>
 
+    <div id="notif-modal" class="modal" style="display:none;">
+        <div class="modal-box">
+            <h3>Notifiche</h3>
+            <p id="notif-stato"></p>
+            <div class="notif-scelte">
+                <label><input type="radio" name="lv" value="2"> Tutti i messaggi</label>
+                <label><input type="radio" name="lv" value="1"> Solo quando mi menzionano</label>
+                <label><input type="radio" name="lv" value="0"> Nessuna notifica</label>
+            </div>
+            <div class="modal-actions">
+                <button id="notif-attiva">Attiva sul dispositivo</button>
+                <button class="btn-secondary" onclick="chiudiNotifiche()">Chiudi</button>
+            </div>
+        </div>
+    </div>
+
     <div class="wrapper">
         <div class="channels-sidebar">
             <div class="space-header">
@@ -34,7 +50,10 @@
         <div class="chat-container">
             <div class="top-bar">
                 <span><strong id="current-channel-label">#general</strong></span>
-                <small><a href="/lobby">Stanze</a> · <a href="/logout">Esci</a></small>
+                <small>
+                    <a href="#" id="notif-btn" title="Notifiche">Notifiche</a> ·
+                    <a href="/lobby">Stanze</a> · <a href="/logout">Esci</a>
+                </small>
             </div>
 
             <div id="chat-box">
@@ -45,6 +64,8 @@
             </div>
 
             <div id="typing-indicator"></div>
+
+            <div id="mention-box" class="mention-box" style="display:none;"></div>
 
             <form id="message-form">
                 <input type="text" id="message" placeholder="Scrivi un messaggio..." autocomplete="off" required>
@@ -64,6 +85,7 @@
     const code   = "{{ code }}";
 
     let currentChannel = null;
+    let mentionables   = [];   // utenti e ruoli menzionabili
     let channelsData   = [];
     let oldestId       = null;   // cursore per il "carica altri"
     let caricando      = false;
@@ -96,11 +118,45 @@
         nome.textContent = d.username;
 
         const testo = document.createElement('span');
-        testo.textContent = d.msg;
+        evidenziaMenzioni(testo, d.msg);
+
+        if (d.mention) p.classList.add('mentioned');
 
         p.appendChild(nome);
         p.appendChild(testo);
         return p;
+    }
+
+    /* Spezza il testo sulle @ e crea uno <span> per ognuna.
+       Costruito nodo per nodo, mai con innerHTML: il contenuto
+       arriva dagli utenti e passerebbe HTML arbitrario. */
+    function evidenziaMenzioni(contenitore, testo) {
+        const re = /@([\w.\-]+)/g;
+        let ultimo = 0, m;
+
+        while ((m = re.exec(testo)) !== null) {
+            if (m.index > ultimo) {
+                contenitore.appendChild(
+                    document.createTextNode(testo.slice(ultimo, m.index)));
+            }
+            const nome = m[1].toLowerCase();
+            const noto = mentionables.some(x => x.nome.toLowerCase() === nome)
+                      || ['everyone', 'all', 'tutti', 'here'].includes(nome);
+
+            if (noto) {
+                const sp = document.createElement('span');
+                sp.className = 'mention';
+                if (nome === myName.toLowerCase()) sp.classList.add('mention-me');
+                sp.textContent = m[0];
+                contenitore.appendChild(sp);
+            } else {
+                contenitore.appendChild(document.createTextNode(m[0]));
+            }
+            ultimo = m.index + m[0].length;
+        }
+        if (ultimo < testo.length) {
+            contenitore.appendChild(document.createTextNode(testo.slice(ultimo)));
+        }
     }
 
     function inFondo() {
@@ -219,6 +275,7 @@
     });
 
     socket.on('update_users', function (users) {
+        caricaMentionables();
         const list = document.getElementById('user-list');
         list.innerHTML = '';
         users.forEach(function (u) {
@@ -242,6 +299,7 @@
             isTyping = true;
             socket.emit('typing', { typing: true });
         }
+        aggiornaMenzioni();
         clearTimeout(typingTimer);
         typingTimer = setTimeout(function () {
             isTyping = false;
@@ -264,6 +322,7 @@
 
     document.getElementById('message-form').addEventListener('submit', function (e) {
         e.preventDefault();
+        if (mentionAperto) return;   // Enter serviva a scegliere la menzione
         const msg = input.value.trim();
         if (!msg) return;
         socket.emit('message', { msg: msg });
@@ -272,7 +331,220 @@
         input.value = '';
     });
 
+
+    /* =====================================================
+       MENZIONI — autocomplete
+       ===================================================== */
+
+    const mentionBox = document.getElementById('mention-box');
+    let mentionAperto = false, mentionIdx = 0, mentionFiltrati = [];
+
+    function caricaMentionables() {
+        return fetch('/api/mentionables/' + code)
+            .then(r => r.ok ? r.json() : [])
+            .then(d => { mentionables = d; });
+    }
+    caricaMentionables();
+
+    /* Cerca una @ aperta subito prima del cursore. Si ferma allo
+       spazio: "ciao @ma" apre il menu, "ciao @mario " no. */
+    function tokenMenzione() {
+        const pos = input.selectionStart;
+        const prima = input.value.slice(0, pos);
+        const m = prima.match(/@([\w.\-]*)$/);
+        return m ? { testo: m[1].toLowerCase(), inizio: pos - m[0].length, fine: pos } : null;
+    }
+
+    function aggiornaMenzioni() {
+        const tok = tokenMenzione();
+        if (!tok) return chiudiMenzioni();
+
+        mentionFiltrati = mentionables
+            .filter(x => x.nome.toLowerCase().startsWith(tok.testo))
+            .slice(0, 8);
+
+        if (!mentionFiltrati.length) return chiudiMenzioni();
+
+        mentionIdx = 0;
+        disegnaMenzioni();
+        mentionBox.style.display = 'block';
+        mentionAperto = true;
+    }
+
+    function disegnaMenzioni() {
+        mentionBox.innerHTML = '';
+        mentionFiltrati.forEach((x, i) => {
+            const d = document.createElement('div');
+            d.className = 'mention-item' + (i === mentionIdx ? ' active' : '');
+
+            const pallino = document.createElement('span');
+            pallino.className = 'mention-dot';
+            pallino.style.background = x.colore;
+
+            const nome = document.createElement('span');
+            nome.textContent = x.nome;
+
+            const tipo = document.createElement('span');
+            tipo.className = 'mention-tipo';
+            tipo.textContent = x.desc || x.tipo;
+
+            d.append(pallino, nome, tipo);
+            d.onmousedown = e => { e.preventDefault(); scegliMenzione(i); };
+            mentionBox.appendChild(d);
+        });
+    }
+
+    function scegliMenzione(i) {
+        const tok = tokenMenzione();
+        if (!tok || !mentionFiltrati[i]) return;
+        const nome = mentionFiltrati[i].nome;
+        input.value = input.value.slice(0, tok.inizio) + '@' + nome + ' '
+                    + input.value.slice(tok.fine);
+        const pos = tok.inizio + nome.length + 2;
+        input.setSelectionRange(pos, pos);
+        chiudiMenzioni();
+        input.focus();
+    }
+
+    function chiudiMenzioni() {
+        mentionBox.style.display = 'none';
+        mentionAperto = false;
+        mentionFiltrati = [];
+    }
+
+    input.addEventListener('keydown', e => {
+        if (!mentionAperto) return;
+        if (e.key === 'ArrowDown') {
+            e.preventDefault();
+            mentionIdx = (mentionIdx + 1) % mentionFiltrati.length;
+            disegnaMenzioni();
+        } else if (e.key === 'ArrowUp') {
+            e.preventDefault();
+            mentionIdx = (mentionIdx - 1 + mentionFiltrati.length) % mentionFiltrati.length;
+            disegnaMenzioni();
+        } else if (e.key === 'Enter' || e.key === 'Tab') {
+            e.preventDefault();
+            scegliMenzione(mentionIdx);
+        } else if (e.key === 'Escape') {
+            chiudiMenzioni();
+        }
+    });
+
+    input.addEventListener('blur', () => setTimeout(chiudiMenzioni, 150));
+
+    /* =====================================================
+       NOTIFICHE PUSH
+       ===================================================== */
+
+    const notifModal = document.getElementById('notif-modal');
+    const notifStato = document.getElementById('notif-stato');
+    let vapidKey = null;
+
+    document.getElementById('notif-btn').onclick = e => {
+        e.preventDefault();
+        apriNotifiche();
+    };
+
+    function chiudiNotifiche() { notifModal.style.display = 'none'; }
+
+    async function apriNotifiche() {
+        notifModal.style.display = 'flex';
+
+        const k = await fetch('/api/push/key').then(r => r.json()).catch(() => ({}));
+        vapidKey = k.key;
+
+        if (!k.attive) {
+            notifStato.textContent = 'Le notifiche non sono configurate sul server.';
+            document.getElementById('notif-attiva').style.display = 'none';
+        } else if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
+            notifStato.textContent = 'Questo browser non supporta le notifiche push.';
+            document.getElementById('notif-attiva').style.display = 'none';
+        } else if (Notification.permission === 'granted') {
+            notifStato.textContent = 'Notifiche attive su questo dispositivo.';
+            document.getElementById('notif-attiva').style.display = 'none';
+        } else if (Notification.permission === 'denied') {
+            notifStato.textContent =
+                'Notifiche bloccate: sbloccale dalle impostazioni del browser.';
+            document.getElementById('notif-attiva').style.display = 'none';
+        } else {
+            notifStato.textContent = 'Attiva le notifiche per ricevere gli avvisi.';
+            document.getElementById('notif-attiva').style.display = '';
+        }
+
+        const p = await fetch('/api/notifications/' + code)
+            .then(r => r.json()).catch(() => ({ level: 1 }));
+        const radio = document.querySelector(`input[name=lv][value="${p.level}"]`);
+        if (radio) radio.checked = true;
+    }
+
+    document.querySelectorAll('input[name=lv]').forEach(r => {
+        r.onchange = () => {
+            fetch('/api/notifications/' + code, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ level: parseInt(r.value, 10) })
+            });
+        };
+    });
+
+    /* La chiave VAPID viaggia in base64url ma PushManager vuole
+       un Uint8Array: va convertita a mano. */
+    function chiaveInBytes(base64) {
+        const pad = '='.repeat((4 - base64.length % 4) % 4);
+        const b64 = (base64 + pad).replace(/-/g, '+').replace(/_/g, '/');
+        const raw = atob(b64);
+        return Uint8Array.from([...raw].map(c => c.charCodeAt(0)));
+    }
+
+    document.getElementById('notif-attiva').onclick = async () => {
+        try {
+            const perm = await Notification.requestPermission();
+            if (perm !== 'granted') {
+                notifStato.textContent = 'Permesso negato.';
+                return;
+            }
+            const reg = await navigator.serviceWorker.register('/sw.js');
+            await navigator.serviceWorker.ready;
+
+            const sub = await reg.pushManager.subscribe({
+                userVisibleOnly: true,
+                applicationServerKey: chiaveInBytes(vapidKey)
+            });
+
+            const r = await fetch('/api/push/subscribe', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(sub)
+            });
+
+            notifStato.textContent = r.ok
+                ? 'Notifiche attive su questo dispositivo.'
+                : 'Iscrizione non riuscita, riprova.';
+            if (r.ok) document.getElementById('notif-attiva').style.display = 'none';
+        } catch (err) {
+            notifStato.textContent = 'Errore: ' + err.message;
+        }
+    };
+
+    /* Se il permesso c'è già, riallinea l'iscrizione in silenzio:
+       gli endpoint scadono e vanno rinnovati. */
+    if ('serviceWorker' in navigator && Notification.permission === 'granted') {
+        navigator.serviceWorker.register('/sw.js')
+            .then(reg => reg.pushManager.getSubscription())
+            .then(sub => {
+                if (sub) {
+                    fetch('/api/push/subscribe', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(sub)
+                    });
+                }
+            })
+            .catch(() => {});
+    }
+
     /* ---------- creazione ruolo ---------- */
+
 
     let pendingRoleName = null;
 

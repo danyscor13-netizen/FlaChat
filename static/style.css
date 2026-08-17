@@ -594,3 +594,105 @@ a { color: var(--accent); text-underline-offset: 3px; }
 .btn-link:hover { color: var(--text); filter: none; }
 
 #load-more { text-align: center; }
+
+/* =========================================================
+   Menzioni e notifiche
+   ========================================================= */
+
+.mention {
+    padding: 1px 3px;
+    border-radius: 3px;
+    background: color-mix(in srgb, var(--accent) 22%, transparent);
+    color: var(--accent);
+    font-weight: 600;
+}
+
+/* Sul proprio messaggio lo sfondo è già l'accento: qui va invertito */
+.msg-own .mention {
+    background: rgba(255, 255, 255, 0.22);
+    color: var(--accent-text);
+}
+
+/* Quando la menzione sei tu, deve saltare all'occhio */
+.mention.mention-me {
+    background: var(--warning);
+    color: #16181d;
+}
+
+#chat-box .mentioned {
+    border-left: 2px solid var(--warning);
+    padding-left: 9px;
+}
+
+/* ---------- Autocomplete ---------- */
+
+.mention-box {
+    max-height: 220px;
+    margin: 0 12px;
+    overflow-y: auto;
+    background: var(--surface-2);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+}
+
+.mention-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 7px 10px;
+    cursor: pointer;
+    font-size: 0.9rem;
+}
+
+.mention-item.active,
+.mention-item:hover { background: var(--accent); color: var(--accent-text); }
+
+.mention-dot {
+    flex-shrink: 0;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+}
+
+.mention-tipo {
+    margin-left: auto;
+    opacity: 0.6;
+    font-size: 0.75rem;
+}
+
+/* ---------- Pannello notifiche ---------- */
+
+.notif-scelte {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-bottom: 18px;
+    text-align: left;
+}
+
+.notif-scelte label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 10px;
+    margin: 0;
+    background: var(--surface-2);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    color: var(--text);
+    font-size: 0.9rem;
+    cursor: pointer;
+}
+
+.notif-scelte label:has(input:checked) { border-color: var(--accent); }
+
+.notif-scelte input {
+    width: auto;
+    margin: 0;
+    accent-color: var(--accent);
+}
+
+#notif-stato {
+    min-height: 20px;
+    font-size: 0.85rem;
+}

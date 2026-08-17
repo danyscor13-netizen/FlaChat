@@ -26,3 +26,11 @@ services:
         generateValue: true    # Render genera una chiave casuale
       - key: DATABASE_URL
         sync: false            # da inserire a mano, è un segreto
+
+      # notifiche push: generare con  python genera_vapid.py
+      - key: VAPID_PUBLIC_KEY
+        sync: false
+      - key: VAPID_PRIVATE_KEY
+        sync: false
+      - key: VAPID_CLAIM_EMAIL
+        sync: false
