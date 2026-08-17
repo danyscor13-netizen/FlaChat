@@ -95,6 +95,11 @@ PERM_NAMES = {
     ADMIN:            "Amministratore",
 }
 
+# Quali permessi ha senso sovrascrivere su un singolo canale.
+# BAN, KICK, MANAGE_ROLES e ADMIN valgono sulla stanza intera:
+# "puoi bannare solo in #random" non significherebbe nulla.
+PERM_CANALE = [SEND_MESSAGES, MANAGE_MESSAGES, MENTION_EVERYONE, MANAGE_CHANNELS]
+
 RUOLI_DEFAULT = [
     ("owner", "#f0b232", ADMIN, 100, False),
     ("admin", "#e04b4b", SEND_MESSAGES | MANAGE_CHANNELS | KICK | BAN
@@ -635,6 +640,216 @@ def api_retention(code):
                     "da_eliminare": da_eliminare})
 
 
+# ---------------------------------------------------------
+# API: pannello permessi
+# ---------------------------------------------------------
+
+def _elenco_permessi(quali):
+    return [{"bit": b, "nome": PERM_NAMES[b]} for b in quali]
+
+
+@app.route("/api/perms/<code>")
+def api_perms(code):
+    """
+    Tutto ciò che serve al pannello: ruoli, canali, override.
+
+    Include anche la posizione dell'utente e i suoi permessi, così il
+    client può disabilitare ciò che non può toccare. I controlli veri
+    restano comunque lato server.
+    """
+    uid = utente_corrente()
+    if not uid:
+        abort(401)
+
+    with get_db() as db:
+        sp = uno(db, "SELECT id FROM spaces WHERE code=%s", (code,))
+        if not sp or not uno(db, """SELECT 1 FROM members
+                                    WHERE space_id=%s AND user_id=%s""",
+                             (sp["id"], uid)):
+            abort(403)
+
+        mia_pos = posizione(db, uid, sp["id"])
+        miei = permessi(db, uid, sp["id"])
+
+        ruoli = [{"id": r["id"], "nome": r["name"], "colore": r["color"],
+                  "permessi": r["permissions"], "posizione": r["position"],
+                  "default": r["is_default"],
+                  # non puoi modificare un ruolo pari o superiore al tuo
+                  "modificabile": bool(miei & ADMIN) or r["position"] < mia_pos}
+                 for r in tutti(db, """SELECT * FROM roles WHERE space_id=%s
+                                       ORDER BY "position" DESC""", (sp["id"],))]
+
+        canali = [{"id": c["id"], "nome": c["name"]}
+                  for c in tutti(db, """SELECT id, name FROM channels
+                                        WHERE space_id=%s
+                                        ORDER BY "position", id""", (sp["id"],))]
+
+        over = {}
+        for o in tutti(db, """SELECT o.channel_id, o.role_id, o.allow, o.deny
+                              FROM channel_overrides o
+                              JOIN channels c ON c.id=o.channel_id
+                              WHERE c.space_id=%s""", (sp["id"],)):
+            over[f"{o['channel_id']}:{o['role_id']}"] = {"allow": o["allow"],
+                                                         "deny": o["deny"]}
+
+    return jsonify({
+        "ruoli": ruoli,
+        "canali": canali,
+        "override": over,
+        "permessi_ruolo": _elenco_permessi(sorted(PERM_NAMES)),
+        "permessi_canale": _elenco_permessi(PERM_CANALE),
+        "miei_permessi": miei,
+        "mia_posizione": mia_pos,
+        "posso_ruoli": bool(miei & MANAGE_ROLES),
+        "posso_canali": bool(miei & MANAGE_CHANNELS),
+    })
+
+
+@app.route("/api/perms/<code>/role", methods=["POST"])
+def api_perms_role(code):
+    """Cambia i permessi di base di un ruolo."""
+    uid = utente_corrente()
+    if not uid:
+        abort(401)
+
+    d = request.get_json(silent=True) or {}
+    try:
+        role_id = int(d.get("role_id"))
+        valore = int(d.get("permessi"))
+    except (TypeError, ValueError):
+        return jsonify({"ok": False}), 400
+
+    with get_db() as db:
+        sp = uno(db, "SELECT id FROM spaces WHERE code=%s", (code,))
+        if not sp:
+            abort(404)
+        if not puo(db, uid, sp["id"], MANAGE_ROLES):
+            return jsonify({"ok": False, "errore": "Non hai i permessi."}), 403
+
+        ruolo = uno(db, "SELECT * FROM roles WHERE id=%s AND space_id=%s",
+                    (role_id, sp["id"]))
+        if not ruolo:
+            abort(404)
+
+        mia_pos = posizione(db, uid, sp["id"])
+        miei = permessi(db, uid, sp["id"])
+        sono_admin = bool(miei & ADMIN)
+
+        if not sono_admin and ruolo["position"] >= mia_pos:
+            return jsonify({"ok": False,
+                            "errore": "Non puoi modificare un ruolo pari o "
+                                      "superiore al tuo."}), 403
+
+        # Non puoi concedere permessi che tu stesso non hai: altrimenti
+        # un mod si crea un ruolo con ADMIN e se lo assegna.
+        if not sono_admin and (valore & ~miei):
+            return jsonify({"ok": False,
+                            "errore": "Non puoi concedere permessi che non "
+                                      "possiedi."}), 403
+
+        # Blocco anti-autoesclusione: se il ruolo è uno dei tuoi e la
+        # modifica ti toglierebbe la capacità di gestire i permessi,
+        # rifiuta. Senza questo si può spegnere ADMIN sul proprio ruolo
+        # e restare chiusi fuori dalla propria stanza, senza modo di
+        # rientrare se non dal database.
+        mio = uno(db, """SELECT 1 FROM member_roles
+                         WHERE space_id=%s AND user_id=%s AND role_id=%s""",
+                  (sp["id"], uid, role_id))
+        if mio:
+            restanti = 0
+            for r in tutti(db, """SELECT r.permissions AS p FROM member_roles mr
+                                  JOIN roles r ON r.id=mr.role_id
+                                  WHERE mr.user_id=%s AND mr.space_id=%s
+                                    AND mr.role_id<>%s""",
+                           (uid, sp["id"], role_id)):
+                restanti |= r["p"]
+            dopo = restanti | (valore & ALL_PERMS)
+            if not (dopo & (ADMIN | MANAGE_ROLES)):
+                return jsonify({"ok": False,
+                                "errore": "Così perderesti la gestione dei "
+                                          "permessi e non potresti più "
+                                          "rientrare."}), 400
+
+        db.execute("UPDATE roles SET permissions=%s WHERE id=%s",
+                   (valore & ALL_PERMS, role_id))
+        db.commit()
+        manda_utenti(sp["id"])
+        manda_canali(sp["id"])
+
+    return jsonify({"ok": True})
+
+
+@app.route("/api/perms/<code>/override", methods=["POST"])
+def api_perms_override(code):
+    """
+    Imposta un permesso su un canale per un ruolo.
+    stato: 1 = consenti, 0 = eredita, -1 = nega
+    """
+    uid = utente_corrente()
+    if not uid:
+        abort(401)
+
+    d = request.get_json(silent=True) or {}
+    try:
+        channel_id = int(d.get("channel_id"))
+        role_id = int(d.get("role_id"))
+        bit = int(d.get("bit"))
+        stato = int(d.get("stato"))
+    except (TypeError, ValueError):
+        return jsonify({"ok": False}), 400
+
+    if bit not in PERM_CANALE or stato not in (-1, 0, 1):
+        return jsonify({"ok": False}), 400
+
+    with get_db() as db:
+        sp = uno(db, "SELECT id FROM spaces WHERE code=%s", (code,))
+        if not sp:
+            abort(404)
+        if not puo(db, uid, sp["id"], MANAGE_CHANNELS):
+            return jsonify({"ok": False, "errore": "Non hai i permessi."}), 403
+
+        ch = uno(db, "SELECT id FROM channels WHERE id=%s AND space_id=%s",
+                 (channel_id, sp["id"]))
+        ruolo = uno(db, "SELECT * FROM roles WHERE id=%s AND space_id=%s",
+                    (role_id, sp["id"]))
+        if not ch or not ruolo:
+            abort(404)
+
+        miei = permessi(db, uid, sp["id"])
+        if not (miei & ADMIN) and ruolo["position"] >= posizione(db, uid, sp["id"]):
+            return jsonify({"ok": False,
+                            "errore": "Non puoi modificare un ruolo pari o "
+                                      "superiore al tuo."}), 403
+
+        r = uno(db, """SELECT allow, deny FROM channel_overrides
+                       WHERE channel_id=%s AND role_id=%s""", (channel_id, role_id))
+        allow, deny = (r["allow"], r["deny"]) if r else (0, 0)
+
+        # il vincolo no_overlap impone che un bit non sia in entrambe
+        allow &= ~bit
+        deny &= ~bit
+        if stato == 1:
+            allow |= bit
+        elif stato == -1:
+            deny |= bit
+
+        if allow == 0 and deny == 0:
+            db.execute("""DELETE FROM channel_overrides
+                          WHERE channel_id=%s AND role_id=%s""",
+                       (channel_id, role_id))
+        else:
+            db.execute("""INSERT INTO channel_overrides
+                            (channel_id, role_id, allow, deny)
+                          VALUES (%s,%s,%s,%s)
+                          ON CONFLICT (channel_id, role_id) DO UPDATE
+                            SET allow=EXCLUDED.allow, deny=EXCLUDED.deny""",
+                       (channel_id, role_id, allow, deny))
+        db.commit()
+        manda_canali(sp["id"])
+
+    return jsonify({"ok": True, "allow": allow, "deny": deny})
+
+
 # =========================================================
 # SOCKET
 # =========================================================
@@ -1117,9 +1332,16 @@ def comando(uid, sid, space_id, msg):
                 f"I messaggi più vecchi di {giorni} giorni verranno eliminati.",
                 space_id=space_id)
 
+        if cmd == "/perms":
+            if not (puo(db, uid, space_id, MANAGE_ROLES)
+                    or puo(db, uid, space_id, MANAGE_CHANNELS)):
+                return sistema("Non hai i permessi per gestire ruoli o canali.",
+                               sid=sid)
+            return socketio.emit("open_perms", {}, room=sid)
+
         if cmd == "/help":
             return sistema("Comandi: /newchannel /delchannel /role /newrole "
-                           "/delrole /kick /ban /unban /retention /help", sid=sid)
+                           "/delrole /perms /kick /ban /unban /retention /help", sid=sid)
 
         return sistema(f"Comando sconosciuto: {cmd}", sid=sid)
 

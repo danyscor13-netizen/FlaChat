@@ -746,3 +746,153 @@ a { color: var(--accent); text-underline-offset: 3px; }
     color: var(--warning);
     font-size: 0.82rem;
 }
+
+.ret-custom {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 12px;
+}
+
+.ret-custom input {
+    flex: 1;
+    margin: 0;
+}
+
+.ret-custom button {
+    width: auto;
+    margin: 0;
+    padding: 0 16px;
+}
+
+/* =========================================================
+   Pannello permessi
+   ========================================================= */
+
+.modal-box.modal-large {
+    width: min(94vw, 480px);
+    max-height: 86vh;
+    display: flex;
+    flex-direction: column;
+    text-align: left;
+}
+
+.modal-large h3 { text-align: center; }
+
+.perms-tabs {
+    display: flex;
+    gap: 4px;
+    margin-bottom: 12px;
+    padding: 3px;
+    background: var(--surface-2);
+    border-radius: var(--radius);
+}
+
+.perms-tab {
+    flex: 1;
+    width: auto;
+    min-height: 32px;
+    margin: 0;
+    padding: 6px;
+    background: none;
+    color: var(--muted);
+    font-size: 0.88rem;
+    font-weight: 500;
+}
+
+.perms-tab.active {
+    background: var(--accent);
+    color: var(--accent-text);
+    font-weight: 600;
+}
+
+.perms-tab:hover { filter: none; color: var(--text); }
+.perms-tab.active:hover { color: var(--accent-text); }
+
+.perms-sel {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 12px;
+}
+
+.perms-sel select { margin: 0; flex: 1; }
+
+.perms-lista {
+    flex: 1;
+    min-height: 120px;
+    overflow-y: auto;
+    margin-bottom: 10px;
+}
+
+.perm-riga {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 9px 10px;
+    border-bottom: 1px solid var(--line);
+}
+
+.perm-riga:last-child { border-bottom: none; }
+
+.perm-nome {
+    flex: 1;
+    min-width: 0;
+    font-size: 0.9rem;
+}
+
+/* interruttore sì/no per i permessi di ruolo */
+.perm-switch {
+    width: 52px;
+    min-height: 28px;
+    margin: 0;
+    padding: 0;
+    flex-shrink: 0;
+    background: var(--surface-2);
+    color: var(--muted);
+    border: 1px solid var(--line);
+    font-size: 0.8rem;
+    font-weight: 600;
+}
+
+.perm-switch.on {
+    background: var(--accent);
+    color: var(--accent-text);
+    border-color: var(--accent);
+}
+
+.perm-switch:disabled { opacity: 0.4; cursor: not-allowed; }
+.perm-switch:hover:not(:disabled) { filter: brightness(1.15); }
+
+/* tre stati per gli override di canale */
+.perm-tre {
+    display: flex;
+    gap: 3px;
+    flex-shrink: 0;
+}
+
+.perm-btn {
+    width: 34px;
+    min-height: 28px;
+    margin: 0;
+    padding: 0;
+    background: var(--surface-2);
+    color: var(--muted);
+    border: 1px solid var(--line);
+    font-size: 0.85rem;
+    font-weight: 700;
+}
+
+.perm-btn:hover:not(:disabled) { color: var(--text); filter: none; }
+.perm-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+/* consentito verde, negato rosso, ereditato neutro:
+   il colore distingue a colpo d'occhio i tre stati */
+.perm-btn.active.s2 { background: #4a9d5f; color: #fff; border-color: #4a9d5f; }
+.perm-btn.active.s1 { background: var(--line); color: var(--text); }
+.perm-btn.active.s0 { background: var(--danger); color: #fff; border-color: var(--danger); }
+
+.perms-stato {
+    min-height: 18px;
+    margin: 0 0 12px;
+    color: var(--warning);
+    font-size: 0.8rem;
+}

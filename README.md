@@ -19,6 +19,7 @@ persistente. Flask + Socket.IO + Postgres.
 | `test_menzioni.py` | 38 test su menzioni e notifiche |
 | `migrazione_retention.sql` | scadenza messaggi + tabelle allegati |
 | `test_retention.py` | 19 test sulla scadenza |
+| `test_perms.py` | 28 test sui permessi |
 | `check_js.py` | verifica la sintassi del JS nei template |
 | `render.yaml` | configurazione dell'hosting |
 | `DEPLOY.md` | istruzioni per il deploy su Render |
@@ -141,9 +142,28 @@ Supabase Storage. Vengono accodati in `storage_da_eliminare`, e
 `menzioni.svuota_coda_storage()` li rimuove dal bucket. Senza questo
 passaggio resterebbero orfani, occupando spazio per sempre.
 
+## Pannello permessi
+
+`/perms` apre una GUI con due schede.
+
+**Ruoli**: interruttori sì/no per i permessi di base di ogni ruolo.
+
+**Canali**: per ogni ruolo e ogni canale, tre stati — consentito (verde),
+eredita (neutro), negato (rosso). "Eredita" non è "no": se domani cambi
+il ruolo, l'ereditato segue, il negato resta negato.
+
+Tre regole impedite lato server, non solo nascoste nella UI:
+
+- non puoi modificare un ruolo pari o superiore al tuo
+- non puoi concedere permessi che tu stesso non possiedi
+- non puoi toglierti la gestione dei permessi e restare chiuso fuori
+
+Solo `SEND_MESSAGES`, `MANAGE_MESSAGES`, `MENTION_EVERYONE` e
+`MANAGE_CHANNELS` sono sovrascrivibili per canale: `BAN`, `KICK`,
+`MANAGE_ROLES` e `ADMIN` valgono sulla stanza intera.
+
 ## Da fare
 
-- pannello permessi grafico al posto dei comandi
 - rinomina ed eliminazione delle superstanze
 - stanze temporanee accanto a quelle permanenti
 - invio di file e immagini, sticker, GIF

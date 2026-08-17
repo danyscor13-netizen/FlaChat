@@ -48,10 +48,39 @@
                 <label><input type="radio" name="ret" value="30"> 30 giorni</label>
                 <label><input type="radio" name="ret" value="90"> 90 giorni</label>
                 <label><input type="radio" name="ret" value="365"> 1 anno</label>
+                <label><input type="radio" name="ret" value="custom"> Altro</label>
+            </div>
+            <div id="ret-custom" class="ret-custom" style="display:none;">
+                <input type="number" id="ret-giorni" min="1" max="3650"
+                       placeholder="giorni">
+                <button id="ret-salva">Salva</button>
             </div>
             <p id="ret-avviso" class="ret-avviso"></p>
             <div class="modal-actions">
                 <button class="btn-secondary" onclick="chiudiStanza()">Chiudi</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="perms-modal" class="modal" style="display:none;">
+        <div class="modal-box modal-large">
+            <h3>Permessi</h3>
+
+            <div class="perms-tabs">
+                <button class="perms-tab active" data-tab="ruoli">Ruoli</button>
+                <button class="perms-tab" data-tab="canali">Canali</button>
+            </div>
+
+            <div class="perms-sel">
+                <select id="perms-ruolo"></select>
+                <select id="perms-canale" style="display:none;"></select>
+            </div>
+
+            <div id="perms-lista" class="perms-lista"></div>
+            <p id="perms-stato" class="perms-stato"></p>
+
+            <div class="modal-actions">
+                <button class="btn-secondary" onclick="chiudiPerms()">Chiudi</button>
             </div>
         </div>
     </div>
@@ -608,13 +637,26 @@
         const d = await caricaRetention();
         if (!d) return;
 
-        const r = document.querySelector(
-            `input[name=ret][value="${d.giorni || ''}"]`);
-        if (r) r.checked = true;
+        const predefiniti = ['', '7', '30', '90', '365'];
+        const val = d.giorni ? String(d.giorni) : '';
+        const custom = document.getElementById('ret-custom');
+
+        if (predefiniti.includes(val)) {
+            const r = document.querySelector(`input[name=ret][value="${val}"]`);
+            if (r) r.checked = true;
+            custom.style.display = 'none';
+        } else {
+            // valore fuori dai predefiniti: mostra "Altro" col numero dentro
+            document.querySelector('input[name=ret][value="custom"]').checked = true;
+            document.getElementById('ret-giorni').value = val;
+            custom.style.display = d.owner ? 'flex' : 'none';
+        }
 
         document.querySelectorAll('input[name=ret]').forEach(x => {
             x.disabled = !d.owner;
         });
+        document.getElementById('ret-giorni').disabled = !d.owner;
+        document.getElementById('ret-salva').disabled = !d.owner;
 
         document.getElementById('stanza-stato').textContent = d.owner
             ? 'Sei il proprietario di questa stanza.'
@@ -628,36 +670,257 @@
 
     document.querySelectorAll('input[name=ret]').forEach(r => {
         r.onchange = async () => {
-            const g = r.value === '' ? null : parseInt(r.value, 10);
-
-            /* Accorciare la scadenza distrugge cronologia: va confermato.
-               Allungarla o toglierla non distrugge nulla, quindi passa
-               senza domande. */
-            if (g !== null) {
-                const ok = confirm(
-                    `I messaggi più vecchi di ${g} giorni verranno eliminati ` +
-                    `definitivamente, e la stessa regola varrà d'ora in poi.\n\n` +
-                    `Confermi?`);
-                if (!ok) { await apriStanza(); return; }
+            if (r.value === 'custom') {
+                // non salva: apre il campo e aspetta il numero
+                document.getElementById('ret-custom').style.display = 'flex';
+                document.getElementById('ret-giorni').focus();
+                return;
             }
-
-            const res = await fetch('/api/retention/' + code, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ giorni: g })
-            }).then(x => x.json()).catch(() => ({ ok: false }));
-
-            if (!res.ok) {
-                document.getElementById('stanza-stato').textContent =
-                    res.errore || 'Modifica non riuscita.';
-                await apriStanza();
-            } else {
-                await apriStanza();
-            }
+            document.getElementById('ret-custom').style.display = 'none';
+            /* Impostare una scadenza distrugge cronologia: salvaRetention
+               chiede conferma. Toglierla non distrugge nulla. */
+            await salvaRetention(r.value === '' ? null : parseInt(r.value, 10));
         };
     });
 
+    async function salvaRetention(g) {
+        if (g !== null) {
+            const ok = confirm(
+                `I messaggi più vecchi di ${g} giorni verranno eliminati ` +
+                `definitivamente, e la stessa regola varrà d'ora in poi.\n\n` +
+                `Confermi?`);
+            if (!ok) { await apriStanza(); return; }
+        }
+        const res = await fetch('/api/retention/' + code, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ giorni: g })
+        }).then(x => x.json()).catch(() => ({ ok: false }));
+
+        if (!res.ok) {
+            document.getElementById('stanza-stato').textContent =
+                res.errore || 'Modifica non riuscita.';
+        }
+        await apriStanza();
+    }
+
+    document.getElementById('ret-salva').onclick = () => {
+        const v = parseInt(document.getElementById('ret-giorni').value, 10);
+        const av = document.getElementById('ret-avviso');
+        if (!v || v < 1 || v > 3650) {
+            av.textContent = 'Inserisci un numero fra 1 e 3650.';
+            return;
+        }
+        salvaRetention(v);
+    };
+
+    document.getElementById('ret-giorni').addEventListener('keydown', e => {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            document.getElementById('ret-salva').click();
+        }
+    });
+
+
+    /* =====================================================
+       PANNELLO PERMESSI  (/perms)
+       ===================================================== */
+
+    const permsModal = document.getElementById('perms-modal');
+    let permsDati = null;
+    let permsTab = 'ruoli';
+
+    socket.on('open_perms', () => apriPerms());
+
+    function chiudiPerms() { permsModal.style.display = 'none'; }
+
+    async function apriPerms() {
+        permsModal.style.display = 'flex';
+        permsDati = await fetch('/api/perms/' + code)
+            .then(r => r.ok ? r.json() : null).catch(() => null);
+        if (!permsDati) {
+            document.getElementById('perms-stato').textContent =
+                'Impossibile caricare i permessi.';
+            return;
+        }
+
+        const selR = document.getElementById('perms-ruolo');
+        selR.innerHTML = '';
+        permsDati.ruoli.forEach(r => {
+            const o = document.createElement('option');
+            o.value = r.id;
+            o.textContent = r.nome + (r.modificabile ? '' : ' (bloccato)');
+            selR.appendChild(o);
+        });
+
+        const selC = document.getElementById('perms-canale');
+        selC.innerHTML = '';
+        permsDati.canali.forEach(c => {
+            const o = document.createElement('option');
+            o.value = c.id;
+            o.textContent = '# ' + c.nome;
+            selC.appendChild(o);
+        });
+        if (currentChannel) selC.value = currentChannel;
+
+        disegnaPerms();
+    }
+
+    document.querySelectorAll('.perms-tab').forEach(t => {
+        t.onclick = () => {
+            permsTab = t.dataset.tab;
+            document.querySelectorAll('.perms-tab').forEach(
+                x => x.classList.toggle('active', x === t));
+            document.getElementById('perms-canale').style.display =
+                permsTab === 'canali' ? '' : 'none';
+            disegnaPerms();
+        };
+    });
+
+    document.getElementById('perms-ruolo').onchange = disegnaPerms;
+    document.getElementById('perms-canale').onchange = disegnaPerms;
+
+    function ruoloScelto() {
+        const id = parseInt(document.getElementById('perms-ruolo').value, 10);
+        return permsDati.ruoli.find(r => r.id === id);
+    }
+
+    function disegnaPerms() {
+        const lista = document.getElementById('perms-lista');
+        const stato = document.getElementById('perms-stato');
+        lista.innerHTML = '';
+        stato.textContent = '';
+
+        const ruolo = ruoloScelto();
+        if (!ruolo) return;
+
+        if (!ruolo.modificabile) {
+            stato.textContent = 'Questo ruolo è pari o superiore al tuo: '
+                              + 'puoi vederlo ma non modificarlo.';
+        }
+
+        if (permsTab === 'ruoli') {
+            if (!permsDati.posso_ruoli) {
+                stato.textContent = 'Ti serve il permesso "Gestire i ruoli".';
+            }
+            permsDati.permessi_ruolo.forEach(p => {
+                const attivo = (ruolo.permessi & p.bit) !== 0;
+                /* non puoi concedere un permesso che non hai:
+                   il server lo rifiuterebbe comunque */
+                const tuoi = (permsDati.miei_permessi & p.bit) !== 0;
+                const bloccato = !ruolo.modificabile || !permsDati.posso_ruoli
+                              || (!tuoi && !attivo);
+
+                lista.appendChild(rigaSwitch(p.nome, attivo, bloccato, val => {
+                    const nuovo = val ? (ruolo.permessi | p.bit)
+                                      : (ruolo.permessi & ~p.bit);
+                    salvaRuolo(ruolo, nuovo);
+                }));
+            });
+        } else {
+            if (!permsDati.posso_canali) {
+                stato.textContent = 'Ti serve il permesso "Gestire i canali".';
+            }
+            const chId = parseInt(document.getElementById('perms-canale').value, 10);
+            const ov = permsDati.override[chId + ':' + ruolo.id] || {allow: 0, deny: 0};
+
+            permsDati.permessi_canale.forEach(p => {
+                let stato3 = 0;
+                if (ov.allow & p.bit) stato3 = 1;
+                else if (ov.deny & p.bit) stato3 = -1;
+
+                const eredita = (ruolo.permessi & p.bit) !== 0;
+                const bloccato = !ruolo.modificabile || !permsDati.posso_canali;
+
+                lista.appendChild(rigaTreStati(p.nome, stato3, eredita, bloccato,
+                    val => salvaOverride(chId, ruolo.id, p.bit, val)));
+            });
+        }
+    }
+
+    function rigaSwitch(nome, attivo, bloccato, onChange) {
+        const riga = document.createElement('div');
+        riga.className = 'perm-riga';
+
+        const et = document.createElement('span');
+        et.className = 'perm-nome';
+        et.textContent = nome;
+
+        const btn = document.createElement('button');
+        btn.className = 'perm-switch' + (attivo ? ' on' : '');
+        btn.textContent = attivo ? 'Sì' : 'No';
+        btn.disabled = bloccato;
+        btn.onclick = () => onChange(!attivo);
+
+        riga.append(et, btn);
+        return riga;
+    }
+
+    /* Tre stati: consenti / eredita / nega.
+       "Eredita" non è "no": se domani cambi il ruolo, l'ereditato segue,
+       il negato resta negato. */
+    function rigaTreStati(nome, stato, eredita, bloccato, onChange) {
+        const riga = document.createElement('div');
+        riga.className = 'perm-riga';
+
+        const et = document.createElement('span');
+        et.className = 'perm-nome';
+        et.textContent = nome;
+
+        const gruppo = document.createElement('div');
+        gruppo.className = 'perm-tre';
+
+        [[1, '✓', 'Consentito'],
+         [0, '–', eredita ? 'Eredita (sì)' : 'Eredita (no)'],
+         [-1, '✗', 'Negato']].forEach(([v, simbolo, titolo]) => {
+            const b = document.createElement('button');
+            b.className = 'perm-btn' + (stato === v ? ' active s' + (v + 1) : '');
+            b.textContent = simbolo;
+            b.title = titolo;
+            b.disabled = bloccato;
+            b.onclick = () => onChange(v);
+            gruppo.appendChild(b);
+        });
+
+        riga.append(et, gruppo);
+        return riga;
+    }
+
+    async function salvaRuolo(ruolo, nuoviPermessi) {
+        const r = await fetch('/api/perms/' + code + '/role', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({role_id: ruolo.id, permessi: nuoviPermessi})
+        }).then(x => x.json()).catch(() => ({ok: false}));
+
+        if (r.ok) {
+            ruolo.permessi = nuoviPermessi;
+            disegnaPerms();
+        } else {
+            document.getElementById('perms-stato').textContent =
+                r.errore || 'Modifica non riuscita.';
+        }
+    }
+
+    async function salvaOverride(chId, roleId, bit, stato) {
+        const r = await fetch('/api/perms/' + code + '/override', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({channel_id: chId, role_id: roleId,
+                                  bit: bit, stato: stato})
+        }).then(x => x.json()).catch(() => ({ok: false}));
+
+        if (r.ok) {
+            permsDati.override[chId + ':' + roleId] = {allow: r.allow, deny: r.deny};
+            disegnaPerms();
+        } else {
+            document.getElementById('perms-stato').textContent =
+                r.errore || 'Modifica non riuscita.';
+        }
+    }
+
     /* ---------- creazione ruolo ---------- */
+
 
 
 
