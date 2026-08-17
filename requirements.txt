@@ -3,8 +3,11 @@ flask-socketio
 Werkzeug
 psycopg[binary,pool]
 
+# notifiche push
+pywebpush
+cryptography
+
 # server di produzione: gevent + worker WebSocket
 gunicorn
 gevent
 gevent-websocket
-pywebpush

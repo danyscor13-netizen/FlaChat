@@ -576,6 +576,65 @@ def service_worker():
     }
 
 
+@app.route("/api/retention/<code>", methods=["GET", "POST"])
+def api_retention(code):
+    """
+    Scadenza dei messaggi. Solo l'owner della stanza può cambiarla:
+    cancellare la cronologia è più grave di creare un canale, quindi
+    non basta MANAGE_CHANNELS.
+    """
+    uid = utente_corrente()
+    if not uid:
+        abort(401)
+
+    with get_db() as db:
+        sp = uno(db, "SELECT * FROM spaces WHERE code=%s", (code,))
+        if not sp:
+            abort(404)
+        if not uno(db, """SELECT 1 FROM members WHERE space_id=%s AND user_id=%s""",
+                   (sp["id"], uid)):
+            abort(403)
+
+        if request.method == "POST":
+            if sp["owner_id"] != uid:
+                return jsonify({"ok": False,
+                                "errore": "Solo il proprietario può cambiarla."}), 403
+
+            giorni = (request.get_json(silent=True) or {}).get("giorni")
+            if giorni is not None:
+                try:
+                    giorni = int(giorni)
+                except (TypeError, ValueError):
+                    return jsonify({"ok": False}), 400
+                if not 1 <= giorni <= 3650:
+                    return jsonify({"ok": False,
+                                    "errore": "Da 1 a 3650 giorni."}), 400
+
+            db.execute("UPDATE spaces SET retention_days=%s WHERE id=%s",
+                       (giorni, sp["id"]))
+            db.commit()
+
+            testo = ("I messaggi non verranno più eliminati automaticamente."
+                     if giorni is None else
+                     f"I messaggi più vecchi di {giorni} giorni verranno eliminati.")
+            sistema(testo, space_id=sp["id"])
+            return jsonify({"ok": True, "giorni": giorni})
+
+        # quanti messaggi sparirebbero con l'impostazione attuale
+        da_eliminare = 0
+        if sp["retention_days"]:
+            r = uno(db, """SELECT COUNT(*) AS n FROM messages m
+                           JOIN channels c ON c.id=m.channel_id
+                           WHERE c.space_id=%s
+                             AND m.created_at < now() - (%s || ' days')::interval""",
+                    (sp["id"], sp["retention_days"]))
+            da_eliminare = r["n"]
+
+    return jsonify({"giorni": sp["retention_days"],
+                    "owner": sp["owner_id"] == uid,
+                    "da_eliminare": da_eliminare})
+
+
 # =========================================================
 # SOCKET
 # =========================================================
@@ -1025,9 +1084,42 @@ def comando(uid, sid, space_id, msg):
                        (space_id, u["id"]))
             return sistema(f"{u['username']} è stato sbannato.", space_id=space_id)
 
+        if cmd == "/retention":
+            sp = uno(db, "SELECT owner_id, code FROM spaces WHERE id=%s", (space_id,))
+            if sp["owner_id"] != uid:
+                return sistema("Solo il proprietario può cambiare la scadenza.",
+                               sid=sid)
+            if len(parti) < 2:
+                r = uno(db, "SELECT retention_days AS d FROM spaces WHERE id=%s",
+                        (space_id,))
+                attuale = (f"{r['d']} giorni" if r["d"] else "mai")
+                return sistema(f"Scadenza messaggi: {attuale}. "
+                               "Uso: /retention <giorni|mai>", sid=sid)
+
+            arg = parti[1].strip().lower()
+            if arg in ("mai", "no", "off", "0"):
+                giorni = None
+            else:
+                try:
+                    giorni = int(arg)
+                except ValueError:
+                    return sistema("Uso: /retention <giorni|mai>", sid=sid)
+                if not 1 <= giorni <= 3650:
+                    return sistema("Il valore deve essere fra 1 e 3650 giorni.",
+                                   sid=sid)
+
+            db.execute("UPDATE spaces SET retention_days=%s WHERE id=%s",
+                       (giorni, space_id))
+            db.commit()
+            return sistema(
+                "I messaggi non verranno più eliminati automaticamente."
+                if giorni is None else
+                f"I messaggi più vecchi di {giorni} giorni verranno eliminati.",
+                space_id=space_id)
+
         if cmd == "/help":
             return sistema("Comandi: /newchannel /delchannel /role /newrole "
-                           "/delrole /kick /ban /unban /help", sid=sid)
+                           "/delrole /kick /ban /unban /retention /help", sid=sid)
 
         return sistema(f"Comando sconosciuto: {cmd}", sid=sid)
 

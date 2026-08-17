@@ -37,6 +37,25 @@
         </div>
     </div>
 
+    <div id="stanza-modal" class="modal" style="display:none;">
+        <div class="modal-box">
+            <h3>Impostazioni stanza</h3>
+            <p id="stanza-stato"></p>
+            <label>Elimina i messaggi più vecchi di</label>
+            <div class="retention-scelte">
+                <label><input type="radio" name="ret" value=""> Mai</label>
+                <label><input type="radio" name="ret" value="7"> 7 giorni</label>
+                <label><input type="radio" name="ret" value="30"> 30 giorni</label>
+                <label><input type="radio" name="ret" value="90"> 90 giorni</label>
+                <label><input type="radio" name="ret" value="365"> 1 anno</label>
+            </div>
+            <p id="ret-avviso" class="ret-avviso"></p>
+            <div class="modal-actions">
+                <button class="btn-secondary" onclick="chiudiStanza()">Chiudi</button>
+            </div>
+        </div>
+    </div>
+
     <div class="wrapper">
         <div class="channels-sidebar">
             <div class="space-header">
@@ -52,11 +71,13 @@
                 <span><strong id="current-channel-label">#general</strong></span>
                 <small>
                     <a href="#" id="notif-btn" title="Notifiche">Notifiche</a> ·
+                    <a href="#" id="stanza-btn" title="Impostazioni stanza">Stanza</a> ·
                     <a href="/lobby">Stanze</a> · <a href="/logout">Esci</a>
                 </small>
             </div>
 
             <div id="chat-box">
+                <div id="ret-banner" class="ret-banner" style="display:none;"></div>
                 <div id="load-more" style="display:none;">
                     <button class="btn-link" onclick="loadMore()">Carica messaggi precedenti</button>
                 </div>
@@ -543,7 +564,101 @@
             .catch(() => {});
     }
 
+
+    /* =====================================================
+       IMPOSTAZIONI STANZA — scadenza messaggi
+       ===================================================== */
+
+    const stanzaModal = document.getElementById('stanza-modal');
+    const retBanner   = document.getElementById('ret-banner');
+
+    document.getElementById('stanza-btn').onclick = e => {
+        e.preventDefault();
+        apriStanza();
+    };
+
+    function chiudiStanza() { stanzaModal.style.display = 'none'; }
+
+    function testoScadenza(g) {
+        if (!g) return null;
+        if (g === 1) return 'I messaggi vengono eliminati dopo 1 giorno.';
+        if (g === 365) return 'I messaggi vengono eliminati dopo 1 anno.';
+        return `I messaggi vengono eliminati dopo ${g} giorni.`;
+    }
+
+    async function caricaRetention() {
+        const d = await fetch('/api/retention/' + code)
+            .then(r => r.ok ? r.json() : null).catch(() => null);
+        if (!d) return null;
+
+        const t = testoScadenza(d.giorni);
+        if (t) {
+            retBanner.textContent = t;
+            retBanner.style.display = 'block';
+        } else {
+            retBanner.style.display = 'none';
+        }
+        return d;
+    }
+
+    caricaRetention();
+
+    async function apriStanza() {
+        stanzaModal.style.display = 'flex';
+        const d = await caricaRetention();
+        if (!d) return;
+
+        const r = document.querySelector(
+            `input[name=ret][value="${d.giorni || ''}"]`);
+        if (r) r.checked = true;
+
+        document.querySelectorAll('input[name=ret]').forEach(x => {
+            x.disabled = !d.owner;
+        });
+
+        document.getElementById('stanza-stato').textContent = d.owner
+            ? 'Sei il proprietario di questa stanza.'
+            : 'Solo il proprietario può cambiare la scadenza.';
+
+        const av = document.getElementById('ret-avviso');
+        av.textContent = d.da_eliminare
+            ? `${d.da_eliminare} messaggi verranno eliminati alla prossima pulizia.`
+            : '';
+    }
+
+    document.querySelectorAll('input[name=ret]').forEach(r => {
+        r.onchange = async () => {
+            const g = r.value === '' ? null : parseInt(r.value, 10);
+
+            /* Accorciare la scadenza distrugge cronologia: va confermato.
+               Allungarla o toglierla non distrugge nulla, quindi passa
+               senza domande. */
+            if (g !== null) {
+                const ok = confirm(
+                    `I messaggi più vecchi di ${g} giorni verranno eliminati ` +
+                    `definitivamente, e la stessa regola varrà d'ora in poi.\n\n` +
+                    `Confermi?`);
+                if (!ok) { await apriStanza(); return; }
+            }
+
+            const res = await fetch('/api/retention/' + code, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ giorni: g })
+            }).then(x => x.json()).catch(() => ({ ok: false }));
+
+            if (!res.ok) {
+                document.getElementById('stanza-stato').textContent =
+                    res.errore || 'Modifica non riuscita.';
+                await apriStanza();
+            } else {
+                await apriStanza();
+            }
+        };
+    });
+
     /* ---------- creazione ruolo ---------- */
+
 
 
     let pendingRoleName = null;

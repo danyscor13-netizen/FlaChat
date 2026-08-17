@@ -17,6 +17,8 @@ persistente. Flask + Socket.IO + Postgres.
 | `genera_vapid.py` | genera le chiavi per le push (una volta sola) |
 | `test_app.py` | 22 test end-to-end |
 | `test_menzioni.py` | 38 test su menzioni e notifiche |
+| `migrazione_retention.sql` | scadenza messaggi + tabelle allegati |
+| `test_retention.py` | 19 test sulla scadenza |
 | `check_js.py` | verifica la sintassi del JS nei template |
 | `render.yaml` | configurazione dell'hosting |
 | `DEPLOY.md` | istruzioni per il deploy su Render |
@@ -121,10 +123,29 @@ Servono le chiavi VAPID (`genera_vapid.py`) e HTTPS. Gli endpoint che
 rispondono 404 o 410 vengono cancellati da soli: è così che lo standard
 comunica che l'utente ha revocato il permesso.
 
+## Scadenza dei messaggi
+
+Ogni superstanza può eliminare i messaggi più vecchi di N giorni.
+Il default è "mai": le stanze esistenti non cambiano comportamento.
+
+Solo l'owner può modificarla, dal pannello "Stanza" o con
+`/retention <giorni|mai>`. Chi entra vede un avviso in cima al canale,
+così la scadenza non è una sorpresa.
+
+La pulizia gira nel database con pg_cron (vedi
+`migrazione_retention.sql`), non nell'app: continua a funzionare anche
+quando Render sospende il servizio.
+
+I file allegati non vengono cancellati da SQL — Postgres non parla con
+Supabase Storage. Vengono accodati in `storage_da_eliminare`, e
+`menzioni.svuota_coda_storage()` li rimuove dal bucket. Senza questo
+passaggio resterebbero orfani, occupando spazio per sempre.
+
 ## Da fare
 
 - pannello permessi grafico al posto dei comandi
 - rinomina ed eliminazione delle superstanze
 - stanze temporanee accanto a quelle permanenti
 - invio di file e immagini, sticker, GIF
+- quota per utente e statistiche di spazio
 - `base.html` con `{% extends %}`: le pagine ripetono head e struttura

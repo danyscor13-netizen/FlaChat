@@ -33,6 +33,12 @@ DROP TABLE IF EXISTS member_roles       CASCADE;
 DROP TABLE IF EXISTS members            CASCADE;
 DROP TABLE IF EXISTS spaces             CASCADE;
 
+-- tabelle aggiunte da migrazione_retention.sql: vanno rimosse anche
+-- loro, altrimenti un reset lascia righe orfane con FK spezzate
+DROP TABLE IF EXISTS attachments          CASCADE;
+DROP TABLE IF EXISTS storage_da_eliminare CASCADE;
+DROP FUNCTION IF EXISTS pulisci_scaduti(INTEGER);
+
 DROP SCHEMA IF EXISTS flachat CASCADE;
 
 

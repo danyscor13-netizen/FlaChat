@@ -216,3 +216,62 @@ def invia(db, user_id, titolo, corpo, url, tag=None):
             # messaggio: la chat viene prima
             pass
     return inviate
+
+
+# =========================================================
+# PULIZIA STORAGE
+# =========================================================
+# pulisci_scaduti() in Postgres accoda i file da rimuovere ma non può
+# toccare il bucket: SQL non parla con Supabase Storage. Questa funzione
+# svuota la coda. Va richiamata periodicamente dall'app (o a mano).
+
+SUPABASE_URL = os.environ.get("SUPABASE_URL", "")
+SUPABASE_SERVICE_KEY = os.environ.get("SUPABASE_SERVICE_KEY", "")
+SUPABASE_BUCKET = os.environ.get("SUPABASE_BUCKET", "flachat")
+
+storage_attivo = bool(SUPABASE_URL and SUPABASE_SERVICE_KEY)
+
+MAX_TENTATIVI = 5
+
+
+def svuota_coda_storage(db, quanti=100):
+    """
+    Rimuove dal bucket i file accodati. Ritorna (eliminati, falliti).
+
+    I falliti restano in coda col contatore incrementato: un errore di
+    rete non deve far perdere il file per sempre. Oltre MAX_TENTATIVI
+    si rinuncia, altrimenti un percorso malformato resta in coda in
+    eterno bloccando la fila.
+    """
+    if not storage_attivo:
+        return 0, 0
+
+    import requests
+
+    righe = db.execute("""
+        SELECT id, storage_path FROM storage_da_eliminare
+        WHERE tentativi < %s ORDER BY id LIMIT %s
+    """, (MAX_TENTATIVI, quanti)).fetchall()
+
+    if not righe:
+        return 0, 0
+
+    percorsi = [r["storage_path"] for r in righe]
+    try:
+        r = requests.delete(
+            f"{SUPABASE_URL}/storage/v1/object/{SUPABASE_BUCKET}",
+            headers={"Authorization": f"Bearer {SUPABASE_SERVICE_KEY}",
+                     "Content-Type": "application/json"},
+            json={"prefixes": percorsi},
+            timeout=15,
+        )
+        if r.status_code < 300:
+            db.execute("DELETE FROM storage_da_eliminare WHERE id = ANY(%s)",
+                       ([x["id"] for x in righe],))
+            return len(righe), 0
+    except Exception:
+        pass
+
+    db.execute("""UPDATE storage_da_eliminare SET tentativi = tentativi + 1
+                  WHERE id = ANY(%s)""", ([x["id"] for x in righe],))
+    return 0, len(righe)

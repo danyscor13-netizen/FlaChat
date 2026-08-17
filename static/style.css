@@ -696,3 +696,53 @@ a { color: var(--accent); text-underline-offset: 3px; }
     min-height: 20px;
     font-size: 0.85rem;
 }
+
+/* =========================================================
+   Scadenza messaggi
+   ========================================================= */
+
+.ret-banner {
+    margin-bottom: 12px;
+    padding: 6px 10px;
+    border-radius: var(--radius);
+    background: var(--surface-2);
+    color: var(--muted);
+    font-size: 0.8rem;
+    text-align: center;
+}
+
+.retention-scelte {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-bottom: 12px;
+}
+
+.retention-scelte label {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin: 0;
+    padding: 7px 10px;
+    background: var(--surface-2);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    color: var(--text);
+    font-size: 0.85rem;
+    cursor: pointer;
+}
+
+.retention-scelte label:has(input:checked) { border-color: var(--accent); }
+.retention-scelte label:has(input:disabled) { opacity: 0.5; cursor: default; }
+
+.retention-scelte input {
+    width: auto;
+    margin: 0;
+    accent-color: var(--accent);
+}
+
+.ret-avviso {
+    min-height: 18px;
+    color: var(--warning);
+    font-size: 0.82rem;
+}
