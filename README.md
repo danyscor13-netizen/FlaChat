@@ -20,6 +20,7 @@ persistente. Flask + Socket.IO + Postgres.
 | `migrazione_retention.sql` | scadenza messaggi + tabelle allegati |
 | `test_retention.py` | 19 test sulla scadenza |
 | `test_perms.py` | 28 test sui permessi |
+| `test_consegna.py` | 17 test su conferme di consegna e riconnessione |
 | `check_js.py` | verifica la sintassi del JS nei template |
 | `render.yaml` | configurazione dell'hosting |
 | `DEPLOY.md` | istruzioni per il deploy su Render |
@@ -45,6 +46,10 @@ su un database vuoto.
 
 ```bash
 python test_app.py
+python test_consegna.py
+python test_perms.py
+python test_menzioni.py
+python test_retention.py
 ```
 
 Il test **azzera il database** prima di partire (riapplica lo schema),
@@ -169,3 +174,41 @@ Solo `SEND_MESSAGES`, `MANAGE_MESSAGES`, `MENTION_EVERYONE` e
 - invio di file e immagini, sticker, GIF
 - quota per utente e statistiche di spazio
 - `base.html` con `{% extends %}`: le pagine ripetono head e struttura
+
+
+## Consegna dei messaggi
+
+Ogni `emit` del client torna una conferma. Il messaggio compare subito
+a schermo in grigio e resta in coda finche' il server non risponde
+`{"ok": true}`; solo allora viene sostituito dalla versione confermata.
+
+Serve perche' il socket cade spesso — schermo bloccato, wifi che salta,
+il dyno free che si addormenta. Quando risale ha un `sid` nuovo e il
+server non sa piu' in che stanza sia quel client: prima `on_message`
+usciva in silenzio e il messaggio spariva senza che nessuno se ne
+accorgesse. Ora risponde `{"ok": false, "err": "nojoin"}`, il client
+rifa' il `join` da solo — passando il canale che stava guardando — e
+svuota la coda.
+
+Le conferme non arrivate entro dieci secondi non vengono rimandate in
+automatico: il messaggio diventa cliccabile per riprovare a mano.
+Rimandare alla cieca rischierebbe di sdoppiare un messaggio gia'
+salvato, e un doppione e' peggio di un ritardo.
+
+Gli annunci di entrata e uscita hanno venti secondi di grazia
+(`GRAZIA` in `app.py`): chi rientra subito non fa comparire niente,
+altrimenti ogni sfarfallio di rete riempirebbe la chat.
+
+## Il tema
+
+Regola di fondo: quello che dicono le persone e' testo normale, tutto
+quello che dice la macchina — codici stanza, canali, orari, permessi,
+badge — e' monospaziato. Si distinguono senza bisogno di riquadri.
+
+I messaggi sono righe piatte con l'orario in colonna e il
+raggruppamento per autore, non fumetti alternati: in una stanza con
+dieci persone conta chi parla, non da che lato sta. I propri messaggi
+si riconoscono dalla riga ambra nel margine.
+
+Il favicon va messo in `static/favicon.png`: il tag `<link rel="icon">`
+e' gia' in tutti i template.

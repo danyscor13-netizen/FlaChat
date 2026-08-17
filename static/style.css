@@ -1,29 +1,46 @@
 /* =========================================================
    FlaChat — tema
    Tutto il tema vive qui. Nessun CSS nei template.
+
+   Idea di fondo: quello che dicono le persone è testo normale,
+   tutto quello che dice la macchina — codici stanza, canali,
+   orari, permessi, badge — è monospaziato. Si distinguono a
+   colpo d'occhio senza bisogno di riquadri e decorazioni.
+
    Per cambiare i colori basta toccare :root qui sotto.
    ========================================================= */
 
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=JetBrains+Mono:wght@400;700&display=swap');
+
 :root {
-    /* Superfici — dal più scuro al più chiaro */
-    --bg:        #16181d;   /* sfondo pagina */
-    --surface:   #1e2127;   /* pannelli */
-    --surface-2: #272b33;   /* hover, input */
-    --line:      #343943;   /* bordi */
+    /* Superfici — inchiostro viola, non grigio neutro */
+    --bg:        #15121f;
+    --surface:   #1c1829;
+    --surface-2: #251f36;
+    --line:      #332b49;
 
     /* Testo */
-    --text:  #e4e6ea;
-    --muted: #9aa0ab;
+    --text:  #efecf7;
+    --muted: #958dab;
 
-    /* Accento — unico. Cambia questo e cambia tutto il sito. */
-    --accent:      #5b8dd9;
-    --accent-text: #ffffff;
+    /* Accento — ambra. Cambia questo e cambia tutto il sito. */
+    --accent:      #f2c14e;
+    --accent-text: #1a1626;
+
+    /* Secondario: menzioni, badge, cose che devono farsi notare
+       senza rubare il posto all'ambra */
+    --accent-2: #b98cff;
 
     /* Stati */
-    --danger:  #d9534f;
-    --warning: #d9a441;
+    --danger:  #ff6b7f;
+    --warning: #ffa552;
+    --ok:      #57d99a;
 
-    --radius: 6px;
+    --radius: 4px;
+
+    --font-ui:   "Space Grotesk", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    --font-body: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 
 * { box-sizing: border-box; }
@@ -37,17 +54,22 @@ body {
     align-items: center;
     background: var(--bg);
     color: var(--text);
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    font-family: var(--font-body);
     font-size: 15px;
     line-height: 1.5;
+}
+
+:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
 }
 
 /* ---------- Pagine semplici (home, login, register, lobby) ---------- */
 
 .container {
-    width: min(100%, 400px);
-    padding: 32px 28px;
-    text-align: center;
+    width: min(100%, 420px);
+    padding: 30px 26px;
+    text-align: left;
     background: var(--surface);
     border: 1px solid var(--line);
     border-radius: var(--radius);
@@ -56,8 +78,10 @@ body {
 .container h1,
 .container h2 {
     margin: 0 0 8px;
-    font-size: 1.75rem;
-    font-weight: 600;
+    font-family: var(--font-ui);
+    font-size: 1.6rem;
+    font-weight: 700;
+    letter-spacing: -0.02em;
 }
 
 .container p {
@@ -67,6 +91,40 @@ body {
 
 .container small { color: var(--muted); }
 
+/* Il marchio: nome in mono con il cursore che lampeggia, come
+   un prompt aperto. È la firma del sito, compare su ogni pagina. */
+
+.brand {
+    display: block;
+    margin-bottom: 18px;
+    font-family: var(--font-mono);
+    font-size: 1.05rem;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    color: var(--accent);
+}
+
+.brand::after {
+    content: "\258D";
+    margin-left: 1px;
+    animation: caret 1.1s steps(1) infinite;
+}
+
+@keyframes caret { 50% { opacity: 0; } }
+
+.azioni {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-bottom: 24px;
+}
+
+.azioni .button { margin-top: 0; }
+
+@media (prefers-reduced-motion: reduce) {
+    .brand::after { animation: none; }
+}
+
 /* ---------- Form ---------- */
 
 input, textarea, select {
@@ -74,7 +132,7 @@ input, textarea, select {
     width: 100%;
     margin: 10px 0;
     padding: 10px 12px;
-    background: var(--surface-2);
+    background: var(--bg);
     border: 1px solid var(--line);
     border-radius: var(--radius);
     color: var(--text);
@@ -86,6 +144,7 @@ input::placeholder { color: var(--muted); }
 
 input:focus, textarea:focus, select:focus {
     border-color: var(--accent);
+    outline: none;
 }
 
 input:disabled {
@@ -102,17 +161,20 @@ button, .button {
     margin-top: 8px;
     padding: 10px 16px;
     background: var(--accent);
-    border: none;
+    border: 1px solid var(--accent);
     border-radius: var(--radius);
     color: var(--accent-text);
-    font: inherit;
-    font-weight: 600;
+    font-family: var(--font-mono);
+    font-size: 0.82rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
     text-decoration: none;
     cursor: pointer;
 }
 
-button:hover, .button:hover { filter: brightness(1.1); }
-button:active, .button:active { filter: brightness(0.95); }
+button:hover, .button:hover { filter: brightness(1.08); }
+button:active, .button:active { filter: brightness(0.94); }
 
 a { color: var(--accent); text-underline-offset: 3px; }
 
@@ -128,14 +190,16 @@ a { color: var(--accent); text-underline-offset: 3px; }
     font-size: 0.9rem;
 }
 
-.warn { border-left-color: var(--warning); }
+.warn { border-left-color: var(--accent); }
 
 .warn h1 {
     margin: 0 0 6px;
-    font-size: 0.85rem;
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
+    font-weight: 700;
     text-transform: uppercase;
-    letter-spacing: 0.06em;
-    color: var(--warning);
+    letter-spacing: 0.1em;
+    color: var(--accent);
 }
 
 .warn p { margin: 0; color: var(--muted); font-size: 0.88rem; }
@@ -144,10 +208,10 @@ a { color: var(--accent); text-underline-offset: 3px; }
 
 .wrapper {
     display: grid;
-    grid-template-columns: 180px minmax(0, 1fr) 190px;
+    grid-template-columns: 200px minmax(0, 1fr) 190px;
     gap: 1px;                      /* le colonne si toccano: un solo blocco */
-    width: min(96vw, 1150px);
-    height: min(88vh, 800px);
+    width: min(96vw, 1180px);
+    height: min(90vh, 820px);
     background: var(--line);       /* il gap mostra questo = linee divisorie */
     border: 1px solid var(--line);
     border-radius: var(--radius);
@@ -172,21 +236,26 @@ a { color: var(--accent); text-underline-offset: 3px; }
     margin: 0 0 10px;
     padding: 0 6px;
     color: var(--muted);
-    font-size: 0.72rem;
-    font-weight: 600;
+    font-family: var(--font-mono);
+    font-size: 0.68rem;
+    font-weight: 700;
     text-transform: uppercase;
-    letter-spacing: 0.08em;
+    letter-spacing: 0.12em;
 }
 
 /* ---------- Canali ---------- */
 
 .channel-item {
-    padding: 7px 10px;
-    margin-bottom: 2px;
-    border-radius: var(--radius);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 10px;
+    margin-bottom: 1px;
+    border-left: 2px solid transparent;
     color: var(--muted);
     cursor: pointer;
-    font-size: 0.92rem;
+    font-family: var(--font-mono);
+    font-size: 0.84rem;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -197,19 +266,46 @@ a { color: var(--accent); text-underline-offset: 3px; }
     color: var(--text);
 }
 
+/* Il canale aperto non è un pillolone colorato: è una riga marcata
+   sul bordo, come la linguetta di uno schedario. */
 .channel-item.active {
-    background: var(--accent);
-    color: var(--accent-text);
-    font-weight: 600;
+    background: var(--surface-2);
+    border-left-color: var(--accent);
+    color: var(--accent);
+    font-weight: 700;
 }
 
-.channel-item.readonly { opacity: 0.5; }
+.channel-item.readonly { opacity: 0.45; }
+
+.channel-name {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.badge {
+    flex-shrink: 0;
+    min-width: 18px;
+    padding: 1px 5px;
+    border-radius: 2px;
+    background: var(--accent-2);
+    color: var(--accent-text);
+    font-family: var(--font-mono);
+    font-size: 0.68rem;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    text-align: center;
+}
+
+.channel-item.active .badge { background: var(--accent); }
 
 /* ---------- Colonna centrale ---------- */
 
 .chat-container {
-    display: grid;
-    grid-template-rows: auto minmax(0, 1fr) auto auto;
+    display: flex;
+    flex-direction: column;
     overflow: hidden;
 }
 
@@ -231,84 +327,144 @@ a { color: var(--accent); text-underline-offset: 3px; }
     text-overflow: ellipsis;
 }
 
-.top-bar strong { color: var(--text); font-weight: 600; }
-.top-bar small { flex-shrink: 0; }
+.top-bar strong { color: var(--text); font-weight: 700; }
+.top-bar small { flex-shrink: 0; color: var(--line); }
 
 .top-bar small a {
     color: var(--muted);
-    font-size: 0.82rem;
+    font-family: var(--font-mono);
+    font-size: 0.74rem;
     text-decoration: none;
 }
 
-.top-bar small a:hover { color: var(--text); }
+.top-bar small a:hover { color: var(--accent); }
 
-#current-channel-label { color: var(--text); font-weight: 600; }
+#current-channel-label {
+    color: var(--text);
+    font-family: var(--font-mono);
+    font-weight: 700;
+}
 
 #chat-box {
-    padding: 14px 16px;
+    flex: 1;
+    min-height: 0;
+    padding: 14px 16px 18px;
     overflow-y: auto;
     text-align: left;
 }
 
 /* ---------- Messaggi ---------- */
+/* Righe piatte con l'orario in colonna, non fumetti alternati:
+   in una stanza con dieci persone conta chi parla, non da che
+   lato sta. Il proprio messaggio si riconosce dalla riga ambra
+   nella colonna dell'orario. */
 
-#chat-box p,
-#chat-box .msg-own,
-#chat-box .msg-other,
-#chat-box .msg-system {
+.msg {
+    position: relative;
+    display: grid;
+    grid-template-columns: 42px minmax(0, 1fr);
+    gap: 10px;
+    padding: 1px 0 1px 8px;
+}
+
+.msg:not(.grouped) { margin-top: 12px; }
+.msg:first-child { margin-top: 0; }
+
+.msg-time {
+    padding-top: 2px;
+    color: transparent;
+    font-family: var(--font-mono);
+    font-size: 0.7rem;
+    font-variant-numeric: tabular-nums;
+    text-align: right;
+    white-space: nowrap;
+}
+
+.msg:not(.grouped) .msg-time,
+.msg:hover .msg-time { color: var(--muted); }
+
+.msg-corpo { min-width: 0; }
+
+.msg-name {
     display: block;
-    width: fit-content;
-    max-width: min(72%, 560px);
-    margin: 0 0 8px;
-    padding: 8px 11px;
-    border-radius: var(--radius);
+    margin-bottom: 1px;
+    font-family: var(--font-ui);
+    font-size: 0.84rem;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+}
+
+.grouped .msg-name { display: none; }
+
+.msg-text {
+    display: block;
     word-wrap: break-word;
     overflow-wrap: break-word;
+    white-space: pre-wrap;
 }
 
-#chat-box .msg-own {
-    margin-left: auto;
+/* la riga verticale che marca i propri messaggi */
+.msg-own::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 2px;
     background: var(--accent);
-    color: var(--accent-text);
+    opacity: 0.55;
 }
 
-#chat-box .msg-other {
-    margin-right: auto;
-    background: var(--surface-2);
+.msg-own:not(.grouped)::before { top: 4px; }
+
+/* messaggio in coda: c'è ma non è ancora confermato dal server */
+.in-attesa { opacity: 0.45; }
+
+.fallito {
+    opacity: 1;
+    cursor: pointer;
 }
 
-#chat-box .msg-system {
-    max-width: 100%;
-    margin: 8px auto;
-    padding: 4px 0;
-    background: none;
-    color: var(--muted);
-    text-align: center;
-    font-size: 0.84rem;
-}
+.fallito .msg-text { text-decoration: underline dotted var(--danger); }
 
-#chat-box .msg-name {
-    display: block;
-    margin-bottom: 2px;
-    font-size: 0.78rem;
+.fallito .msg-time::after {
+    content: " !";
+    color: var(--danger);
     font-weight: 700;
 }
 
-/* Nel proprio messaggio il colore del ruolo sparirebbe sull'accento:
-   lo si tiene leggibile forzando il bianco. */
-#chat-box .msg-own .msg-name {
-    color: var(--accent-text) !important;
-    opacity: 0.85;
+.msg-system {
+    margin: 12px 0;
+    padding: 0 8px;
+    color: var(--muted);
+    font-family: var(--font-mono);
+    font-size: 0.74rem;
+    text-align: center;
 }
+
+.msg-system::before { content: "— "; opacity: 0.5; }
+.msg-system::after  { content: " —"; opacity: 0.5; }
+
+/* ---------- Stato della connessione ---------- */
+
+.stato-connessione {
+    padding: 5px 16px;
+    border-top: 1px solid var(--line);
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
+}
+
+.stato-connessione.ko     { color: var(--danger); }
+.stato-connessione.attesa { color: var(--warning); }
 
 /* ---------- Sta scrivendo ---------- */
 
 #typing-indicator {
-    min-height: 20px;
-    padding: 0 16px 4px;
+    min-height: 18px;
+    padding: 0 16px;
     color: var(--muted);
-    font-size: 0.82rem;
-    font-style: italic;
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
     opacity: 0;
 }
 
@@ -328,6 +484,7 @@ a { color: var(--accent); text-underline-offset: 3px; }
     width: auto;
     height: 40px;
     margin: 0;
+    background: var(--surface-2);
 }
 
 #send-button {
@@ -336,10 +493,10 @@ a { color: var(--accent); text-underline-offset: 3px; }
     height: 40px;
     margin: 0;
     padding: 0;
-    font-size: 1rem;
+    font-size: 0.9rem;
 }
 
-/* ---------- Utenti online ---------- */
+/* ---------- Utenti ---------- */
 
 #user-list {
     list-style: none;
@@ -351,9 +508,8 @@ a { color: var(--accent); text-underline-offset: 3px; }
     display: flex;
     align-items: center;
     gap: 7px;
-    padding: 6px 8px;
-    border-radius: var(--radius);
-    font-size: 0.9rem;
+    padding: 5px 8px;
+    font-size: 0.86rem;
     font-weight: 500;
     white-space: nowrap;
     overflow: hidden;
@@ -365,13 +521,17 @@ a { color: var(--accent); text-underline-offset: 3px; }
 #user-list li::before {
     content: "";
     flex-shrink: 0;
-    width: 7px;
-    height: 7px;
+    width: 6px;
+    height: 6px;
     border-radius: 50%;
     background: currentColor;   /* prende il colore del ruolo */
 }
 
-/* ---------- Modali (creazione ruolo, ban) ---------- */
+/* Il pallino usa currentColor, quindi basta abbassare l'opacità
+   per spegnere nome e pallino insieme. */
+#user-list li.offline { opacity: 0.35; }
+
+/* ---------- Modali ---------- */
 
 .modal {
     position: fixed;
@@ -379,33 +539,44 @@ a { color: var(--accent); text-underline-offset: 3px; }
     display: flex;
     justify-content: center;
     align-items: center;
-    background: rgba(0, 0, 0, 0.6);
+    padding: 16px;
+    background: rgba(10, 8, 16, 0.72);
     z-index: 999;
 }
 
 .modal-box {
-    width: min(90vw, 320px);
-    padding: 24px;
+    width: min(90vw, 340px);
+    padding: 22px;
     background: var(--surface);
     border: 1px solid var(--line);
+    border-top: 2px solid var(--accent);
     border-radius: var(--radius);
-    text-align: center;
+    text-align: left;
 }
 
-.modal-box h3 { margin: 0 0 6px; font-size: 1.1rem; }
+.modal-box h3 {
+    margin: 0 0 6px;
+    font-family: var(--font-ui);
+    font-size: 1.05rem;
+    font-weight: 700;
+}
+
 .modal-box p  { margin: 0 0 16px; color: var(--muted); font-size: 0.9rem; }
 
 .modal-box label {
     display: block;
     margin-bottom: 10px;
     color: var(--muted);
-    font-size: 0.85rem;
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
 }
 
 #role-color-picker {
-    width: 60px;
-    height: 60px;
-    margin: 0 auto 16px;
+    width: 56px;
+    height: 56px;
+    margin: 0 0 16px;
     padding: 0;
     background: none;
     border: 1px solid var(--line);
@@ -418,76 +589,27 @@ a { color: var(--accent); text-underline-offset: 3px; }
 
 .btn-secondary {
     background: var(--surface-2);
+    border-color: var(--line);
     color: var(--text);
 }
-
-/* ---------- Mobile ---------- */
-
-@media (max-width: 860px) {
-    body { padding: 0; align-items: stretch; }
-
-    .wrapper {
-        width: 100%;
-        height: 100vh;
-        border: none;
-        border-radius: 0;
-        grid-template-columns: 1fr;
-        grid-template-rows: auto minmax(0, 1fr) auto;
-    }
-
-    .channels-sidebar,
-    .sidebar {
-        max-height: 110px;
-        padding: 10px;
-    }
-
-    /* Su mobile canali e utenti scorrono in orizzontale:
-       occupano una striscia invece di rubare metà schermo. */
-    #channel-list,
-    #user-list {
-        display: flex;
-        gap: 6px;
-        overflow-x: auto;
-    }
-
-    .channel-item,
-    #user-list li {
-        margin-bottom: 0;
-        flex-shrink: 0;
-        background: var(--surface-2);
-    }
-
-    #chat-box p,
-    #chat-box .msg-own,
-    #chat-box .msg-other { max-width: 85%; }
-
-    .top-bar {
-        flex-direction: column;
-        align-items: flex-start;
-        gap: 4px;
-    }
-}
-
-/* =========================================================
-   Superstanze permanenti — aggiunte
-   ========================================================= */
 
 /* ---------- Lobby: elenco stanze ---------- */
 
 .section-label {
     margin: 22px 0 8px;
     color: var(--muted);
-    font-size: 0.72rem;
-    font-weight: 600;
+    font-family: var(--font-mono);
+    font-size: 0.68rem;
+    font-weight: 700;
     text-transform: uppercase;
-    letter-spacing: 0.08em;
+    letter-spacing: 0.12em;
     text-align: left;
 }
 
 .space-list {
     display: flex;
     flex-direction: column;
-    gap: 6px;
+    gap: 4px;
 }
 
 .space-item {
@@ -496,20 +618,21 @@ a { color: var(--accent); text-underline-offset: 3px; }
     gap: 2px;
     padding: 10px 12px;
     background: var(--surface-2);
-    border: 1px solid transparent;
-    border-radius: var(--radius);
+    border-left: 2px solid var(--line);
+    border-radius: 0 var(--radius) var(--radius) 0;
     color: var(--text);
     text-align: left;
     text-decoration: none;
 }
 
-.space-item:hover { border-color: var(--accent); }
+.space-item:hover { border-left-color: var(--accent); }
 
-.space-name { font-weight: 600; }
+.space-name { font-family: var(--font-ui); font-weight: 700; }
 
 .space-meta {
     color: var(--muted);
-    font-size: 0.8rem;
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
     font-variant-numeric: tabular-nums;
 }
 
@@ -523,58 +646,23 @@ a { color: var(--accent); text-underline-offset: 3px; }
 }
 
 .space-title {
-    font-weight: 600;
-    line-height: 1.3;
+    font-family: var(--font-ui);
+    font-weight: 700;
+    line-height: 1.25;
     overflow-wrap: break-word;
 }
 
 .space-code {
-    margin-top: 2px;
-    color: var(--muted);
-    font-size: 0.78rem;
-    font-variant-numeric: tabular-nums;
-}
-
-/* ---------- Canali: badge non letti ---------- */
-
-.channel-item {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-}
-
-.channel-name {
-    flex: 1;
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-
-.badge {
-    flex-shrink: 0;
-    min-width: 18px;
+    display: inline-block;
+    margin-top: 5px;
     padding: 1px 5px;
-    border-radius: 9px;
-    background: var(--accent);
-    color: var(--accent-text);
-    font-size: 0.7rem;
-    font-weight: 700;
-    font-variant-numeric: tabular-nums;
-    text-align: center;
-}
-
-/* Sul canale attivo lo sfondo è già l'accento: il badge va invertito */
-.channel-item.active .badge {
-    background: var(--accent-text);
+    background: var(--surface-2);
+    border-radius: 2px;
     color: var(--accent);
+    font-family: var(--font-mono);
+    font-size: 0.7rem;
+    letter-spacing: 0.04em;
 }
-
-/* ---------- Membri: offline ---------- */
-/* Il pallino usa currentColor, quindi basta abbassare l'opacità
-   per spegnere nome e pallino insieme. */
-
-#user-list li.offline { opacity: 0.4; }
 
 /* ---------- Carica messaggi precedenti ---------- */
 
@@ -582,46 +670,53 @@ a { color: var(--accent); text-underline-offset: 3px; }
     width: auto;
     min-height: 0;
     margin: 0 auto 12px;
-    padding: 5px 12px;
+    padding: 4px 12px;
     display: block;
-    background: var(--surface-2);
+    background: none;
     color: var(--muted);
     border: 1px solid var(--line);
-    font-size: 0.82rem;
-    font-weight: 500;
+    font-size: 0.7rem;
+    text-transform: none;
 }
 
-.btn-link:hover { color: var(--text); filter: none; }
+.btn-link:hover { color: var(--accent); border-color: var(--accent); filter: none; }
 
 #load-more { text-align: center; }
 
 /* =========================================================
-   Menzioni e notifiche
+   Menzioni
    ========================================================= */
 
 .mention {
-    padding: 1px 3px;
-    border-radius: 3px;
-    background: color-mix(in srgb, var(--accent) 22%, transparent);
-    color: var(--accent);
+    padding: 0 3px;
+    border-radius: 2px;
+    background: color-mix(in srgb, var(--accent-2) 20%, transparent);
+    color: var(--accent-2);
     font-weight: 600;
 }
 
-/* Sul proprio messaggio lo sfondo è già l'accento: qui va invertito */
-.msg-own .mention {
-    background: rgba(255, 255, 255, 0.22);
-    color: var(--accent-text);
-}
+.msg-own .mention { color: var(--accent-2); }
 
 /* Quando la menzione sei tu, deve saltare all'occhio */
 .mention.mention-me {
-    background: var(--warning);
-    color: #16181d;
+    background: var(--accent);
+    color: var(--accent-text);
+    font-weight: 700;
 }
 
-#chat-box .mentioned {
-    border-left: 2px solid var(--warning);
-    padding-left: 9px;
+.msg.mentioned {
+    background: color-mix(in srgb, var(--accent-2) 8%, transparent);
+}
+
+.msg.mentioned::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 2px;
+    background: var(--accent-2);
+    opacity: 1;
 }
 
 /* ---------- Autocomplete ---------- */
@@ -641,7 +736,7 @@ a { color: var(--accent); text-underline-offset: 3px; }
     gap: 8px;
     padding: 7px 10px;
     cursor: pointer;
-    font-size: 0.9rem;
+    font-size: 0.88rem;
 }
 
 .mention-item.active,
@@ -657,7 +752,8 @@ a { color: var(--accent); text-underline-offset: 3px; }
 .mention-tipo {
     margin-left: auto;
     opacity: 0.6;
-    font-size: 0.75rem;
+    font-family: var(--font-mono);
+    font-size: 0.7rem;
 }
 
 /* ---------- Pannello notifiche ---------- */
@@ -665,7 +761,7 @@ a { color: var(--accent); text-underline-offset: 3px; }
 .notif-scelte {
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    gap: 6px;
     margin-bottom: 18px;
     text-align: left;
 }
@@ -680,7 +776,10 @@ a { color: var(--accent); text-underline-offset: 3px; }
     border: 1px solid var(--line);
     border-radius: var(--radius);
     color: var(--text);
-    font-size: 0.9rem;
+    font-family: var(--font-body);
+    font-size: 0.88rem;
+    text-transform: none;
+    letter-spacing: 0;
     cursor: pointer;
 }
 
@@ -703,18 +802,19 @@ a { color: var(--accent); text-underline-offset: 3px; }
 
 .ret-banner {
     margin-bottom: 12px;
-    padding: 6px 10px;
+    padding: 5px 10px;
     border-radius: var(--radius);
     background: var(--surface-2);
     color: var(--muted);
-    font-size: 0.8rem;
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
     text-align: center;
 }
 
 .retention-scelte {
     display: flex;
     flex-wrap: wrap;
-    gap: 6px;
+    gap: 5px;
     margin-bottom: 12px;
 }
 
@@ -723,16 +823,19 @@ a { color: var(--accent); text-underline-offset: 3px; }
     align-items: center;
     gap: 6px;
     margin: 0;
-    padding: 7px 10px;
+    padding: 6px 9px;
     background: var(--surface-2);
     border: 1px solid var(--line);
     border-radius: var(--radius);
     color: var(--text);
-    font-size: 0.85rem;
+    font-family: var(--font-mono);
+    font-size: 0.78rem;
+    text-transform: none;
+    letter-spacing: 0;
     cursor: pointer;
 }
 
-.retention-scelte label:has(input:checked) { border-color: var(--accent); }
+.retention-scelte label:has(input:checked) { border-color: var(--accent); color: var(--accent); }
 .retention-scelte label:has(input:disabled) { opacity: 0.5; cursor: default; }
 
 .retention-scelte input {
@@ -769,14 +872,14 @@ a { color: var(--accent); text-underline-offset: 3px; }
    ========================================================= */
 
 .modal-box.modal-large {
-    width: min(94vw, 480px);
+    width: min(94vw, 500px);
     max-height: 86vh;
     display: flex;
     flex-direction: column;
     text-align: left;
 }
 
-.modal-large h3 { text-align: center; }
+.modal-large h3 { text-align: left; }
 
 .perms-tabs {
     display: flex;
@@ -790,19 +893,19 @@ a { color: var(--accent); text-underline-offset: 3px; }
 .perms-tab {
     flex: 1;
     width: auto;
-    min-height: 32px;
+    min-height: 30px;
     margin: 0;
     padding: 6px;
     background: none;
+    border-color: transparent;
     color: var(--muted);
-    font-size: 0.88rem;
-    font-weight: 500;
+    font-size: 0.74rem;
 }
 
 .perms-tab.active {
     background: var(--accent);
+    border-color: var(--accent);
     color: var(--accent-text);
-    font-weight: 600;
 }
 
 .perms-tab:hover { filter: none; color: var(--text); }
@@ -827,7 +930,7 @@ a { color: var(--accent); text-underline-offset: 3px; }
     display: flex;
     align-items: center;
     gap: 10px;
-    padding: 9px 10px;
+    padding: 8px 2px;
     border-bottom: 1px solid var(--line);
 }
 
@@ -836,21 +939,21 @@ a { color: var(--accent); text-underline-offset: 3px; }
 .perm-nome {
     flex: 1;
     min-width: 0;
-    font-size: 0.9rem;
+    font-family: var(--font-mono);
+    font-size: 0.8rem;
 }
 
 /* interruttore sì/no per i permessi di ruolo */
 .perm-switch {
     width: 52px;
-    min-height: 28px;
+    min-height: 26px;
     margin: 0;
     padding: 0;
     flex-shrink: 0;
     background: var(--surface-2);
     color: var(--muted);
     border: 1px solid var(--line);
-    font-size: 0.8rem;
-    font-weight: 600;
+    font-size: 0.7rem;
 }
 
 .perm-switch.on {
@@ -870,15 +973,14 @@ a { color: var(--accent); text-underline-offset: 3px; }
 }
 
 .perm-btn {
-    width: 34px;
-    min-height: 28px;
+    width: 32px;
+    min-height: 26px;
     margin: 0;
     padding: 0;
     background: var(--surface-2);
     color: var(--muted);
     border: 1px solid var(--line);
-    font-size: 0.85rem;
-    font-weight: 700;
+    font-size: 0.78rem;
 }
 
 .perm-btn:hover:not(:disabled) { color: var(--text); filter: none; }
@@ -886,13 +988,67 @@ a { color: var(--accent); text-underline-offset: 3px; }
 
 /* consentito verde, negato rosso, ereditato neutro:
    il colore distingue a colpo d'occhio i tre stati */
-.perm-btn.active.s2 { background: #4a9d5f; color: #fff; border-color: #4a9d5f; }
+.perm-btn.active.s2 { background: var(--ok); color: var(--accent-text); border-color: var(--ok); }
 .perm-btn.active.s1 { background: var(--line); color: var(--text); }
-.perm-btn.active.s0 { background: var(--danger); color: #fff; border-color: var(--danger); }
+.perm-btn.active.s0 { background: var(--danger); color: var(--accent-text); border-color: var(--danger); }
 
 .perms-stato {
     min-height: 18px;
     margin: 0 0 12px;
     color: var(--warning);
-    font-size: 0.8rem;
+    font-family: var(--font-mono);
+    font-size: 0.74rem;
+}
+
+/* ---------- Mobile ---------- */
+
+@media (max-width: 860px) {
+    body { padding: 0; align-items: stretch; }
+
+    .wrapper {
+        width: 100%;
+        height: 100dvh;
+        border: none;
+        border-radius: 0;
+        grid-template-columns: 1fr;
+        grid-template-rows: auto minmax(0, 1fr) auto;
+    }
+
+    .channels-sidebar,
+    .sidebar {
+        max-height: 96px;
+        padding: 8px 10px;
+    }
+
+    .space-header {
+        padding-bottom: 8px;
+        margin-bottom: 8px;
+    }
+
+    /* Su mobile canali e utenti scorrono in orizzontale:
+       occupano una striscia invece di rubare metà schermo. */
+    #channel-list,
+    #user-list {
+        display: flex;
+        gap: 5px;
+        overflow-x: auto;
+    }
+
+    .channel-item,
+    #user-list li {
+        margin-bottom: 0;
+        flex-shrink: 0;
+        background: var(--surface-2);
+        border-radius: var(--radius);
+    }
+
+    .channel-item.active { border-left-color: var(--accent); }
+
+    .msg { grid-template-columns: 36px minmax(0, 1fr); gap: 8px; }
+
+    .top-bar {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 4px;
+    }
 }

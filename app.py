@@ -19,6 +19,7 @@ from datetime import datetime, timedelta, timezone
 import os
 import random
 import string
+import time
 
 import psycopg
 from psycopg.rows import dict_row
@@ -893,6 +894,33 @@ def manda_canali(space_id, solo_sid=None):
                               canali_visibili(db, uid, space_id), room=sid)
 
 
+# Chi si è disconnesso di recente: (space_id, user_id) -> epoch.
+# Serve a non annunciare "è entrato / ha lasciato la stanza" a ogni
+# sfarfallio di rete, che su mobile succede di continuo.
+uscite = {}
+GRAZIA = 20   # secondi
+
+
+def rientro_recente(space_id, uid):
+    t = uscite.get((space_id, uid))
+    return t is not None and (time.time() - t) < GRAZIA
+
+
+def annuncia_uscita(space_id, uid):
+    """Chiamata dopo la grazia: se nel frattempo è rientrato, tace."""
+    socketio.sleep(GRAZIA)
+    if uid in online.get(space_id, {}).values():
+        return
+    if not rientro_recente(space_id, uid):
+        return          # già annunciato o rientrato e riuscito
+    uscite.pop((space_id, uid), None)
+    with get_db() as db:
+        u = uno(db, "SELECT username FROM users WHERE id=%s", (uid,))
+    if u:
+        sistema(f"{u['username']} ha lasciato la stanza.", space_id=space_id)
+    manda_utenti(space_id)
+
+
 def sistema(msg, sid=None, space_id=None):
     dati = {"type": "system", "msg": msg}
     if sid:
@@ -907,18 +935,18 @@ def on_join(data):
     uid = session.get("user_id")
     if not uid:
         emit("message", {"type": "system", "msg": "Sessione scaduta, ricarica."})
-        return
+        return {"ok": False, "err": "sessione"}
 
     sid = request.sid
     with get_db() as db:
         sp = uno(db, "SELECT * FROM spaces WHERE code=%s", (str(data.get("code")),))
         if not sp:
-            return
+            return {"ok": False, "err": "stanza"}
 
         space_id = sp["id"]
         if ban_attivo(db, space_id, uid):
             emit("message", {"type": "banned", "msg": "Sei bannato da questa stanza."})
-            return
+            return {"ok": False, "err": "ban"}
 
         entra_space(db, space_id, uid)
 
@@ -926,20 +954,32 @@ def on_join(data):
         sid_space[sid] = space_id
         join_room(space_id)
 
-        ch = uno(db, """SELECT id, name FROM channels WHERE space_id=%s
-                        ORDER BY "position", id LIMIT 1""", (space_id,))
+        # dopo una riconnessione il client rimanda il canale che stava
+        # guardando: senza questo tornerebbe sempre sul primo.
+        ch = None
+        voluto = data.get("channel_id")
+        if voluto:
+            ch = uno(db, """SELECT id, name FROM channels
+                            WHERE id=%s AND space_id=%s""", (voluto, space_id))
+        if not ch:
+            ch = uno(db, """SELECT id, name FROM channels WHERE space_id=%s
+                            ORDER BY "position", id LIMIT 1""", (space_id,))
         sid_channel[sid] = ch["id"]
         segna_letto(db, uid, ch["id"])
 
     username = session.get("username")
-    # annuncio solo se non era già connesso da un'altra scheda
+    # Annuncio l'ingresso solo se è un ingresso vero: non se ha un'altra
+    # scheda aperta e non se si è appena riconnesso dopo un buco di rete.
     altri = [s for s, u in online[space_id].items() if u == uid and s != sid]
-    if not altri:
+    if not altri and not rientro_recente(space_id, uid):
         sistema(f"{username}{random.choice(WELCOMES)}", space_id=space_id)
+    uscite.pop((space_id, uid), None)
 
     emit("set_channel", {"channel_id": ch["id"], "channel": ch["name"]}, room=sid)
     manda_canali(space_id, solo_sid=sid)
     manda_utenti(space_id)
+    # il client aspetta questo per svuotare la coda dei messaggi non inviati
+    return {"ok": True, "channel_id": ch["id"], "channel": ch["name"]}
 
 
 @socketio.on("switch_channel")
@@ -948,13 +988,14 @@ def on_switch(data):
     sid = request.sid
     space_id = sid_space.get(sid)
     if not uid or not space_id:
-        return
+        return {"ok": False, "err": "nojoin"}
 
     with get_db() as db:
         ch = uno(db, "SELECT * FROM channels WHERE id=%s AND space_id=%s",
                  (data.get("channel_id"), space_id))
         if not ch:
-            return sistema("Canale non trovato.", sid=sid)
+            sistema("Canale non trovato.", sid=sid)
+            return {"ok": False, "err": "canale"}
 
         if sid_channel.get(sid):
             segna_letto(db, uid, sid_channel[sid])
@@ -963,6 +1004,7 @@ def on_switch(data):
 
     emit("set_channel", {"channel_id": ch["id"], "channel": ch["name"]}, room=sid)
     manda_canali(space_id, solo_sid=sid)
+    return {"ok": True, "channel_id": ch["id"]}
 
 
 @socketio.on("message")
@@ -970,23 +1012,31 @@ def on_message(data):
     uid = session.get("user_id")
     sid = request.sid
     space_id = sid_space.get(sid)
+    tmp = data.get("tmp")
+
+    # Questo è il caso che faceva "sparire" i messaggi: il socket si era
+    # riconnesso con un sid nuovo e il server non sapeva più dove fosse.
+    # Prima si usciva in silenzio, ora il client lo sa e rifà il join.
     if not uid or not space_id:
-        return
+        return {"ok": False, "err": "nojoin", "tmp": tmp}
 
     msg = (data.get("msg") or "").strip()
     if not msg:
-        return
+        return {"ok": False, "err": "vuoto", "tmp": tmp}
     if len(msg) > 2000:
-        return sistema("Messaggio troppo lungo (max 2000).", sid=sid)
+        sistema("Messaggio troppo lungo (max 2000).", sid=sid)
+        return {"ok": False, "err": "lungo", "tmp": tmp}
 
     if msg.startswith("/"):
-        return comando(uid, sid, space_id, msg)
+        comando(uid, sid, space_id, msg)
+        return {"ok": True, "comando": True, "tmp": tmp}
 
     channel_id = sid_channel.get(sid)
 
     with get_db() as db:
         if not puo(db, uid, space_id, SEND_MESSAGES, channel_id):
-            return sistema("Non puoi scrivere in questo canale.", sid=sid)
+            sistema("Non puoi scrivere in questo canale.", sid=sid)
+            return {"ok": False, "err": "permessi", "tmp": tmp}
 
         # --- menzioni: risolte prima dell'insert, per salvare i flag
         puo_ev = puo(db, uid, space_id, MENTION_EVERYONE, channel_id)
@@ -1021,9 +1071,10 @@ def on_message(data):
         visto_da = set()
         for s, u in list(online.get(space_id, {}).items()):
             if sid_channel.get(s) == channel_id:
+                extra = {"tmp": tmp} if s == sid else {}
                 socketio.emit("message",
                               {**payload, "own": u == uid,
-                               "mention": u in da_notificare}, room=s)
+                               "mention": u in da_notificare, **extra}, room=s)
                 if u != uid:
                     segna_letto(db, u, channel_id)
                     visto_da.add(u)   # ha il canale aperto: niente push
@@ -1034,6 +1085,8 @@ def on_message(data):
         db.commit()
         notifica_push(db, space_id, channel_id, uid, msg,
                       da_notificare, visto_da)
+
+    return {"ok": True, "id": riga["id"], "tmp": tmp}
 
 
 def notifica_push(db, space_id, channel_id, autore_id, testo,
@@ -1400,12 +1453,12 @@ def on_disconnect():
         with get_db() as db:
             if ch:
                 segna_letto(db, uid, ch)
-            # annuncio d'uscita solo se non ha altre schede aperte
-            if uid not in online.get(space_id, {}).values():
-                u = uno(db, "SELECT username FROM users WHERE id=%s", (uid,))
-                if u:
-                    sistema(f"{u['username']} ha lasciato la stanza.",
-                            space_id=space_id)
+        # L'annuncio d'uscita parte solo se non ha altre schede aperte, e
+        # comunque dopo la grazia: chi si riconnette entro pochi secondi
+        # non fa comparire niente in chat.
+        if uid not in online.get(space_id, {}).values():
+            uscite[(space_id, uid)] = time.time()
+            socketio.start_background_task(annuncia_uscita, space_id, uid)
 
     manda_utenti(space_id)
     if not online.get(space_id):

@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>{{ space_name }} – FlaChat</title>
     <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+    <link rel="icon" href="/static/favicon.png">
     <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
@@ -113,6 +114,8 @@
                 <div id="messages"></div>
             </div>
 
+            <div id="stato-connessione" class="stato-connessione" style="display:none;"></div>
+
             <div id="typing-indicator"></div>
 
             <div id="mention-box" class="mention-box" style="display:none;"></div>
@@ -144,22 +147,103 @@
     const msgList  = document.getElementById('messages');
     const loadMoreBtn = document.getElementById('load-more');
     const input    = document.getElementById('message');
+    const stato    = document.getElementById('stato-connessione');
 
-    socket.emit('join', { code: code });
+    /* =====================================================
+       CONNESSIONE E CODA DI INVIO
+
+       Il socket cade spesso (schermo bloccato, wifi che salta,
+       il server free che si addormenta). Quando risale ha un sid
+       nuovo e il server non sa più in che stanza siamo: prima i
+       messaggi partivano nel vuoto senza che nessuno se ne
+       accorgesse, e toccava riscriverli.
+
+       Adesso: ogni messaggio resta in coda finché il server non
+       conferma di averlo salvato. Se la connessione manca, parte
+       da solo appena rientra.
+       ===================================================== */
+
+    let joinFatto = false;
+    const coda = [];          // messaggi in attesa di conferma
+    let contatoreTmp = 0;
+
+    function mostraStato(testo, classe) {
+        if (!stato) return;
+        stato.textContent = testo || '';
+        stato.className = 'stato-connessione' + (classe ? ' ' + classe : '');
+        stato.style.display = testo ? 'block' : 'none';
+    }
+
+    function faiJoin() {
+        socket.emit('join', { code: code, channel_id: currentChannel },
+            function (risposta) {
+                if (risposta && risposta.ok) {
+                    joinFatto = true;
+                    mostraStato('');
+                    svuotaCoda();
+                } else {
+                    joinFatto = false;
+                    if (risposta && risposta.err === 'sessione') {
+                        mostraStato('Sessione scaduta. Ricarica la pagina.', 'ko');
+                    }
+                }
+            });
+    }
+
+    socket.on('connect', function () {
+        joinFatto = false;
+        faiJoin();
+    });
+
+    socket.on('disconnect', function () {
+        joinFatto = false;
+        mostraStato('Connessione persa. Riprovo…', 'ko');
+    });
+
+    socket.io.on('reconnect_attempt', function () {
+        mostraStato('Riconnessione…', 'ko');
+    });
 
     /* ---------- rendering ---------- */
 
-    function nodoMessaggio(d) {
-        const p = document.createElement('p');
+    /* L'ultimo messaggio disegnato, per capire se il prossimo va
+       attaccato allo stesso blocco (stesso autore, entro 5 minuti). */
+    let ultimo = null;
 
+    function orario(ts) {
+        if (!ts) return '';
+        const d = new Date(ts * 1000);
+        return String(d.getHours()).padStart(2, '0') + ':'
+             + String(d.getMinutes()).padStart(2, '0');
+    }
+
+    function stessoBlocco(d, prec) {
+        return prec && prec.username === d.username
+            && prec.type !== 'system' && d.type !== 'system'
+            && Math.abs((d.ts || 0) - (prec.ts || 0)) < 300;
+    }
+
+    function nodoMessaggio(d, prec) {
         if (d.type === 'system') {
-            p.className = 'msg-system';
-            p.textContent = d.msg;
-            return p;
+            const s = document.createElement('div');
+            s.className = 'msg-system';
+            s.textContent = d.msg;
+            return s;
         }
 
-        p.className = d.own ? 'msg-own' : 'msg-other';
-        if (d.id) p.dataset.id = d.id;
+        const riga = document.createElement('div');
+        riga.className = 'msg' + (d.own ? ' msg-own' : ' msg-other');
+        if (stessoBlocco(d, prec)) riga.classList.add('grouped');
+        if (d.mention) riga.classList.add('mentioned');
+        if (d.id) riga.dataset.id = d.id;
+        if (d.tmp) riga.dataset.tmp = d.tmp;
+
+        const ora = document.createElement('span');
+        ora.className = 'msg-time';
+        ora.textContent = orario(d.ts);
+
+        const corpo = document.createElement('div');
+        corpo.className = 'msg-corpo';
 
         // textContent, mai innerHTML: il contenuto arriva dagli utenti
         const nome = document.createElement('span');
@@ -168,13 +252,14 @@
         nome.textContent = d.username;
 
         const testo = document.createElement('span');
+        testo.className = 'msg-text';
         evidenziaMenzioni(testo, d.msg);
 
-        if (d.mention) p.classList.add('mentioned');
-
-        p.appendChild(nome);
-        p.appendChild(testo);
-        return p;
+        corpo.appendChild(nome);
+        corpo.appendChild(testo);
+        riga.appendChild(ora);
+        riga.appendChild(corpo);
+        return riga;
     }
 
     /* Spezza il testo sulle @ e crea uno <span> per ognuna.
@@ -215,8 +300,11 @@
 
     function appendi(d) {
         const attaccato = inFondo();
-        msgList.appendChild(nodoMessaggio(d));
+        const nodo = nodoMessaggio(d, ultimo);
+        msgList.appendChild(nodo);
+        ultimo = d;
         if (attaccato) box.scrollTop = box.scrollHeight;
+        return nodo;
     }
 
     /* ---------- cronologia ---------- */
@@ -236,7 +324,12 @@
             loadMoreBtn.style.display = (msgs.length === 50) ? 'block' : 'none';
 
             const frag = document.createDocumentFragment();
-            msgs.forEach(function (m) { frag.appendChild(nodoMessaggio(m)); });
+            let prec = null;
+            msgs.forEach(function (m) {
+                frag.appendChild(nodoMessaggio(m, prec));
+                prec = m;
+            });
+            if (!before) ultimo = prec;
 
             if (before) {
                 // inserendo in cima lo scroll salterebbe: lo compensiamo
@@ -265,12 +358,31 @@
             setTimeout(function () { location.href = '/lobby?banned=1'; }, 1800);
             return;
         }
+
+        // È l'eco di un messaggio nostro: era già a schermo in grigio,
+        // lo si conferma sul posto invece di stamparlo una seconda volta.
+        if (d.tmp) {
+            const v = coda.find(function (x) { return x.tmp === d.tmp; });
+            const vecchio = msgList.querySelector('[data-tmp="' + d.tmp + '"]');
+            togliDallaCoda(d.tmp);
+            if (vecchio) {
+                const nuovo = nodoMessaggio(d, null);
+                if (vecchio.classList.contains('grouped')) {
+                    nuovo.classList.add('grouped');
+                }
+                vecchio.replaceWith(nuovo);
+                ultimo = d;
+                if (v) aggiornaStatoCoda();
+                return;
+            }
+        }
         appendi(d);
     });
 
     socket.on('set_channel', function (d) {
         currentChannel = d.channel_id;
         oldestId = null;
+        ultimo = null;
         document.getElementById('current-channel-label').textContent = '#' + d.channel;
         msgList.innerHTML = '';
         caricaStorico(d.channel_id, null);
@@ -310,9 +422,15 @@
             }
 
             div.onclick = function () {
-                if (ch.id !== currentChannel) {
-                    socket.emit('switch_channel', { channel_id: ch.id });
-                }
+                if (ch.id === currentChannel) return;
+                socket.emit('switch_channel', { channel_id: ch.id },
+                    function (risposta) {
+                        if (risposta && risposta.err === 'nojoin') {
+                            joinFatto = false;
+                            currentChannel = ch.id;
+                            faiJoin();
+                        }
+                    });
             };
             list.appendChild(div);
         });
@@ -370,16 +488,98 @@
 
     /* ---------- invio ---------- */
 
+    /* Il menu delle menzioni si chiude e basta: prima questo ramo
+       usciva senza inviare, così il primo tap sul pulsante andava
+       perso e bisognava premere due volte. */
     document.getElementById('message-form').addEventListener('submit', function (e) {
         e.preventDefault();
-        if (mentionAperto) return;   // Enter serviva a scegliere la menzione
+        chiudiMenzioni();
+
         const msg = input.value.trim();
         if (!msg) return;
-        socket.emit('message', { msg: msg });
+
+        input.value = '';
         socket.emit('typing', { typing: false });
         isTyping = false;
-        input.value = '';
+
+        const voce = { tmp: 'tmp' + (++contatoreTmp), msg: msg, nodo: null };
+        coda.push(voce);
+
+        // i comandi non tornano indietro come messaggio: niente anteprima
+        if (!msg.startsWith('/')) {
+            voce.nodo = appendi({
+                type: 'chat', own: true, username: myName, msg: msg,
+                color: '', ts: Date.now() / 1000, tmp: voce.tmp
+            });
+            voce.nodo.classList.add('in-attesa');
+        }
+
+        inviaVoce(voce);
+        aggiornaStatoCoda();
     });
+
+    function togliDallaCoda(tmp) {
+        const i = coda.findIndex(function (x) { return x.tmp === tmp; });
+        if (i >= 0) coda.splice(i, 1);
+    }
+
+    function aggiornaStatoCoda() {
+        const fermi = coda.length;
+        if (!fermi) {
+            if (joinFatto) mostraStato('');
+            return;
+        }
+        mostraStato(fermi === 1 ? 'Un messaggio in attesa di partire.'
+                                : fermi + ' messaggi in attesa di partire.', 'attesa');
+    }
+
+    function inviaVoce(voce) {
+        if (!joinFatto) return;          // parte da sola dopo il join
+        voce.partito = Date.now();
+        if (voce.nodo) voce.nodo.classList.remove('fallito');
+
+        socket.emit('message', { msg: voce.msg, tmp: voce.tmp },
+            function (risposta) {
+                if (risposta && risposta.ok) {
+                    // i comandi non hanno eco: si chiude qui
+                    if (risposta.comando) {
+                        togliDallaCoda(voce.tmp);
+                        aggiornaStatoCoda();
+                    }
+                    return;
+                }
+                if (risposta && risposta.err === 'nojoin') {
+                    joinFatto = false;
+                    faiJoin();           // rientra e riprova da solo
+                    return;
+                }
+                // rifiutato dal server (permessi, troppo lungo): niente
+                // reinvio, il motivo è già comparso in chat
+                togliDallaCoda(voce.tmp);
+                if (voce.nodo) voce.nodo.remove();
+                aggiornaStatoCoda();
+            });
+    }
+
+    function svuotaCoda() {
+        coda.slice().forEach(inviaVoce);
+        aggiornaStatoCoda();
+    }
+
+    /* Se una conferma non arriva entro dieci secondi il messaggio resta
+       in coda e diventa cliccabile per riprovare a mano. Non lo si
+       rimanda da soli: potrebbe essere arrivato e sdoppiarsi. */
+    setInterval(function () {
+        const ora = Date.now();
+        coda.forEach(function (v) {
+            if (v.partito && ora - v.partito > 10000 && v.nodo
+                && !v.nodo.classList.contains('fallito')) {
+                v.nodo.classList.add('fallito');
+                v.nodo.title = 'Non confermato. Tocca per riprovare.';
+                v.nodo.onclick = function () { inviaVoce(v); };
+            }
+        });
+    }, 3000);
 
 
     /* =====================================================
