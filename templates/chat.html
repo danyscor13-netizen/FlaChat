@@ -137,7 +137,23 @@
     const myName = "{{ username }}";
     const code   = "{{ code }}";
 
+    /* Ruolo -> file dell'icona, letto dal server all'avvio.
+       Se un ruolo non ha il file, semplicemente non compare niente. */
+    const ICONE = {{ icone | tojson }};
+
+    function nodoIcona(ruolo) {
+        const url = ICONE[(ruolo || '').toLowerCase()];
+        if (!url) return null;
+        const img = document.createElement('img');
+        img.className = 'role-icon';
+        img.src = url;
+        img.alt = ruolo;
+        img.title = ruolo;
+        return img;
+    }
+
     let currentChannel = null;
+    let mioRuolo       = '';   // serve all'anteprima dei propri messaggi
     let mentionables   = [];   // utenti e ruoli menzionabili
     let channelsData   = [];
     let oldestId       = null;   // cursore per il "carica altri"
@@ -249,7 +265,9 @@
         const nome = document.createElement('span');
         nome.className = 'msg-name';
         nome.style.color = d.color;
-        nome.textContent = d.username;
+        const icona = nodoIcona(d.role);
+        if (icona) nome.appendChild(icona);
+        nome.appendChild(document.createTextNode(d.username));
 
         const testo = document.createElement('span');
         testo.className = 'msg-text';
@@ -443,6 +461,8 @@
     });
 
     socket.on('update_users', function (users) {
+        const io_ = users.find(function (u) { return u.username === myName; });
+        if (io_) mioRuolo = io_.role;
         caricaMentionables();
         const list = document.getElementById('user-list');
         list.innerHTML = '';
@@ -451,7 +471,10 @@
             if (!u.online) li.classList.add('offline');
             li.style.color = u.color;
             li.title = u.role;
+            const icona = nodoIcona(u.role);
+            if (icona) li.appendChild(icona);
             const n = document.createElement('span');
+            n.className = 'user-nome';
             n.textContent = u.username;
             li.appendChild(n);
             list.appendChild(li);
@@ -509,7 +532,7 @@
         if (!msg.startsWith('/')) {
             voce.nodo = appendi({
                 type: 'chat', own: true, username: myName, msg: msg,
-                color: '', ts: Date.now() / 1000, tmp: voce.tmp
+                color: '', role: mioRuolo, ts: Date.now() / 1000, tmp: voce.tmp
             });
             voce.nodo.classList.add('in-attesa');
         }

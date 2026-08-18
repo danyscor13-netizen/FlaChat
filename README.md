@@ -20,7 +20,7 @@ persistente. Flask + Socket.IO + Postgres.
 | `migrazione_retention.sql` | scadenza messaggi + tabelle allegati |
 | `test_retention.py` | 19 test sulla scadenza |
 | `test_perms.py` | 28 test sui permessi |
-| `test_consegna.py` | 17 test su conferme di consegna e riconnessione |
+| `test_consegna.py` | 23 test su consegna, riconnessione e icone dei ruoli |
 | `check_js.py` | verifica la sintassi del JS nei template |
 | `render.yaml` | configurazione dell'hosting |
 | `DEPLOY.md` | istruzioni per il deploy su Render |
@@ -212,3 +212,18 @@ si riconoscono dalla riga ambra nel margine.
 
 Il favicon va messo in `static/favicon.png`: il tag `<link rel="icon">`
 e' gia' in tutti i template.
+
+## Icone dei ruoli
+
+Vanno in `static/icons/` e si chiamano come il ruolo: `owner.svg`,
+`admin.svg`, `mod.svg`. La cartella viene letta all'avvio
+(`mappa_icone()` in `app.py`), quindi l'estensione non conta e non
+c'e' nessun elenco da tenere aggiornato: se crei un ruolo `bot` ti
+basta mettere `static/icons/bot.svg` e l'icona compare da sola. Un
+ruolo senza file semplicemente non ne mostra nessuna — `user` sta
+cosi' di proposito.
+
+I file attualmente presenti sono segnaposto, da sostituire con i
+tuoi. L'icona compare accanto al nome nei messaggi e nell'elenco dei
+membri, ed e' alta quanto il testo: e' un dettaglio, non un
+distintivo. Se aggiungi file mentre il server gira, va riavviato.

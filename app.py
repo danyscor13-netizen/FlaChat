@@ -109,10 +109,38 @@ RUOLI_DEFAULT = [
     ("user",  "#cccccc", SEND_MESSAGES | MENTION_EVERYONE, 0, True),
 ]
 
+# ---------------------------------------------------------
+# ICONE DEI RUOLI
+# ---------------------------------------------------------
+# Le icone stanno in static/icons/ e si chiamano come il ruolo:
+# owner.png, admin.png, mod.png. La cartella viene letta all'avvio,
+# quindi l'estensione non conta (svg, png, webp...) e non c'e' nessun
+# elenco da tenere aggiornato a mano: se domani crei un ruolo "bot" ti
+# basta mettere static/icons/bot.svg e compare da solo.
+
+ICONE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                         "static", "icons")
+ICONE_EXT = (".svg", ".png", ".webp", ".gif", ".jpg", ".jpeg")
+
+
+def mappa_icone():
+    """{nome_ruolo: url} per i ruoli che hanno un file nella cartella."""
+    out = {}
+    try:
+        for f in sorted(os.listdir(ICONE_DIR)):
+            base, ext = os.path.splitext(f)
+            if ext.lower() in ICONE_EXT and base.lower() not in out:
+                out[base.lower()] = f"/static/icons/{f}"
+    except FileNotFoundError:
+        pass          # cartella non ancora creata: nessuna icona, fine
+    return out
+
+
+ICONE = mappa_icone()
+
 # =========================================================
 # STATO VOLATILE — solo "chi è connesso adesso"
 # =========================================================
-
 online = {}        # space_id -> {sid: user_id}
 sid_channel = {}   # sid -> channel_id
 sid_space = {}     # sid -> space_id
@@ -400,7 +428,8 @@ def chat(code):
         entra_space(db, sp["id"], uid)
 
     return render_template("chat.html", username=session["username"],
-                           space_name=sp["name"], code=sp["code"])
+                           space_name=sp["name"], code=sp["code"],
+                           icone=ICONE)
 
 
 @app.route("/api/messages/<int:channel_id>")
@@ -425,11 +454,15 @@ def api_messages(channel_id):
                         (SELECT r.color FROM member_roles mr
                          JOIN roles r ON r.id = mr.role_id
                          WHERE mr.user_id = u.id AND mr.space_id = %s
-                         ORDER BY r."position" DESC LIMIT 1) AS color
+                         ORDER BY r."position" DESC LIMIT 1) AS color,
+                        (SELECT r.name FROM member_roles mr
+                         JOIN roles r ON r.id = mr.role_id
+                         WHERE mr.user_id = u.id AND mr.space_id = %s
+                         ORDER BY r."position" DESC LIMIT 1) AS role
                  FROM messages m
                  LEFT JOIN users u ON u.id = m.author_id
                  WHERE m.channel_id = %s AND m.deleted_at IS NULL"""
-        par = [ch["space_id"], channel_id]
+        par = [ch["space_id"], ch["space_id"], channel_id]
         if before:
             sql += " AND m.id < %s"
             par.append(before)
@@ -443,6 +476,7 @@ def api_messages(channel_id):
         "username": r["username"] or "utente eliminato",
         "msg": r["content"],
         "color": r["color"] or "#cccccc",
+        "role": r["role"] or "",
         "ts": ts(r["created_at"]),
         "own": r["uid"] == uid,
     } for r in reversed(righe)])
@@ -1051,11 +1085,12 @@ def on_message(data):
                    (channel_id, uid, msg, m_everyone, m_here))
         menzioni.salva(db, riga["id"], m_utenti, m_ruoli)
 
-        c = uno(db, """SELECT r.color FROM member_roles mr
+        c = uno(db, """SELECT r.color, r.name FROM member_roles mr
                        JOIN roles r ON r.id=mr.role_id
                        WHERE mr.user_id=%s AND mr.space_id=%s
                        ORDER BY r."position" DESC LIMIT 1""", (uid, space_id))
         colore = c["color"] if c else "#cccccc"
+        ruolo = c["name"] if c else ""
         segna_letto(db, uid, channel_id)
 
         connessi = set(online.get(space_id, {}).values())
@@ -1064,7 +1099,8 @@ def on_message(data):
             m_everyone, m_here, uid, connessi)
 
         payload = {"type": "chat", "id": riga["id"], "username": session.get("username"),
-                   "msg": msg, "color": colore, "channel_id": channel_id,
+                   "msg": msg, "color": colore, "role": ruolo,
+                   "channel_id": channel_id,
                    "ts": ts(riga["created_at"])}
 
         # chi guarda il canale riceve il messaggio, gli altri solo il badge

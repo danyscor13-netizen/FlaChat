@@ -155,6 +155,28 @@ def main():
     ack = s1b.emit("message", {"msg": "   ", "tmp": "t4"}, callback=True)
     check("messaggio vuoto rifiutato", ack and ack.get("ok") is False)
 
+    print("\nICONE DEI RUOLI")
+
+    check("la cartella static/icons e' stata letta",
+          "owner" in A.ICONE and "admin" in A.ICONE and "mod" in A.ICONE)
+    check("l'url dell'icona punta dentro static/icons",
+          A.ICONE["owner"].startswith("/static/icons/owner."))
+    check("'user' non ha icona (nessun file)", "user" not in A.ICONE)
+
+    s1b.get_received()
+    s1b.emit("message", {"msg": "con ruolo", "tmp": "t5"}, callback=True)
+    eco = [dati(e) for e in eventi(s1b, "message")]
+    mio = [d for d in eco if d.get("tmp") == "t5"]
+    check("il messaggio porta il ruolo dell'autore",
+          mio and mio[0].get("role") == "owner")
+
+    r = c1.get(f"/api/messages/{ch2}")
+    storico = r.get_json()
+    check("anche la cronologia porta il ruolo",
+          storico and all("role" in m for m in storico))
+    check("e il ruolo e' quello giusto",
+          any(m["role"] == "owner" for m in storico))
+
     print("\nTUTTO OK" if ok else "\nCI SONO ERRORI")
     return 0 if ok else 1
 

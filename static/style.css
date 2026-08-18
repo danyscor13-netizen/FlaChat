@@ -396,6 +396,32 @@ a { color: var(--accent); text-underline-offset: 3px; }
 
 .grouped .msg-name { display: none; }
 
+/* ---------- Icone dei ruoli ---------- */
+/* Stanno in static/icons/ e si chiamano come il ruolo. Vanno accanto
+   al nome, alte quanto il testo: sono un dettaglio, non un distintivo. */
+
+.role-icon {
+    width: 1em;
+    height: 1em;
+    margin-right: 4px;
+    vertical-align: -0.11em;
+    object-fit: contain;
+    flex-shrink: 0;
+}
+
+#user-list .role-icon {
+    width: 13px;
+    height: 13px;
+    margin-right: 0;
+    vertical-align: middle;
+}
+
+.user-nome {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
 .msg-text {
     display: block;
     word-wrap: break-word;
