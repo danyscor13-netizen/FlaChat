@@ -260,6 +260,45 @@ def main():
     check("il messaggio porta l'url dell'icona del ruolo",
           mio and mio[0].get("icon") == "/static/icons/mod.svg")
 
+    print("\nSENZA LA MIGRAZIONE")
+
+    # La chat deve reggere anche se migrazione_icone.sql non e' ancora
+    # stata eseguita: prima mancava la colonna e /api/messages tornava
+    # 500 su ogni canale, cioe' chat completamente bloccata.
+    with A.get_db() as db:
+        db.execute("ALTER TABLE roles DROP COLUMN IF EXISTS icon")
+        db.commit()
+    A.rileva_colonna_icon()
+    check("la colonna mancante viene rilevata", A.HA_COLONNA_ICON is False)
+
+    r = c1.get(f"/api/messages/{ch2}?limit=50")
+    check("la cronologia risponde lo stesso", r.status_code == 200)
+
+    s1c = A.socketio.test_client(A.app, flask_test_client=c1)
+    s1c.emit("join", {"code": code})
+    s1c.get_received()
+    ack = s1c.emit("message", {"msg": "senza colonna", "tmp": "t7"},
+                   callback=True)
+    check("si riesce comunque a scrivere", ack and ack.get("ok") is True)
+
+    s1c.emit("create_role", {"role_name": "vice", "color": "#123456",
+                             "icon": "mod.svg", "modifica": False})
+    with A.get_db() as db:
+        r = A.uno(db, "SELECT color FROM roles WHERE space_id=%s AND name='vice'",
+                  (sp_id,))
+    check("i ruoli si creano lo stesso, senza icona scelta",
+          r and r["color"] == "#123456")
+
+    storico = c1.get(f"/api/messages/{ch2}?limit=50").get_json()
+    check("e il file omonimo continua a fare da icona",
+          any(m["icon"] == "/static/icons/owner.svg" for m in storico))
+
+    # rimessa: le altre suite girano sullo schema completo
+    with A.get_db() as db:
+        db.execute("ALTER TABLE roles ADD COLUMN IF NOT EXISTS icon TEXT")
+        db.commit()
+    A.rileva_colonna_icon()
+
     print("\nPOOLER SUPABASE")
 
     # Il pooler è in transaction mode: un prepared statement creato su

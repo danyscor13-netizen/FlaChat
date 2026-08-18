@@ -189,6 +189,39 @@ def url_icona(nome_ruolo, icon=None):
 
 ICONE = mappa_icone()
 
+# La colonna roles.icon arriva con migrazione_icone.sql. Se non e' ancora
+# stata eseguita l'app deve continuare a funzionare: senza questo
+# controllo ogni query sui ruoli esplode e la chat non carica piu'
+# niente, con un 500 su /api/messages che non dice cosa fare.
+# Si perde solo la scelta manuale dell'icona; il file omonimo continua
+# a funzionare, perche' quello non passa dal database.
+HA_COLONNA_ICON = False
+
+
+def rileva_colonna_icon():
+    global HA_COLONNA_ICON
+    try:
+        with get_db() as db:
+            HA_COLONNA_ICON = uno(db, """
+                SELECT 1 AS x FROM information_schema.columns
+                WHERE table_name='roles' AND column_name='icon'""") is not None
+    except Exception:
+        HA_COLONNA_ICON = False
+
+    if not HA_COLONNA_ICON:
+        print("ATTENZIONE: manca la colonna roles.icon. "
+              "Esegui migrazione_icone.sql sul database. "
+              "Nel frattempo le icone dei ruoli usano solo il file omonimo.")
+    return HA_COLONNA_ICON
+
+
+def sel_icon(alias="r"):
+    """Il pezzo di SELECT per l'icona, o NULL se la colonna non c'e'."""
+    return f"{alias}.icon" if HA_COLONNA_ICON else "NULL"
+
+
+rileva_colonna_icon()
+
 # =========================================================
 # STATO VOLATILE — solo "chi è connesso adesso"
 # =========================================================
@@ -499,7 +532,7 @@ def api_messages(channel_id):
                              (ch["space_id"], uid)):
             abort(403)
 
-        sql = """SELECT m.id, m.content, m.created_at, m.edited_at,
+        sql = f"""SELECT m.id, m.content, m.created_at, m.edited_at,
                         u.id AS uid, u.username,
                         (SELECT r.color FROM member_roles mr
                          JOIN roles r ON r.id = mr.role_id
@@ -509,7 +542,7 @@ def api_messages(channel_id):
                          JOIN roles r ON r.id = mr.role_id
                          WHERE mr.user_id = u.id AND mr.space_id = %s
                          ORDER BY r."position" DESC LIMIT 1) AS role,
-                        (SELECT r.icon FROM member_roles mr
+                        (SELECT {sel_icon()} FROM member_roles mr
                          JOIN roles r ON r.id = mr.role_id
                          WHERE mr.user_id = u.id AND mr.space_id = %s
                          ORDER BY r."position" DESC LIMIT 1) AS role_icon
@@ -946,7 +979,7 @@ def api_perms_override(code):
 
 def utenti_stanza(db, space_id):
     connessi = set(online.get(space_id, {}).values())
-    righe = tutti(db, """
+    righe = tutti(db, f"""
         SELECT u.id, u.username,
                (SELECT r.color FROM member_roles mr JOIN roles r ON r.id=mr.role_id
                 WHERE mr.user_id=u.id AND mr.space_id=%s
@@ -954,7 +987,7 @@ def utenti_stanza(db, space_id):
                (SELECT r.name FROM member_roles mr JOIN roles r ON r.id=mr.role_id
                 WHERE mr.user_id=u.id AND mr.space_id=%s
                 ORDER BY r."position" DESC LIMIT 1) AS role,
-               (SELECT r.icon FROM member_roles mr JOIN roles r ON r.id=mr.role_id
+               (SELECT {sel_icon()} FROM member_roles mr JOIN roles r ON r.id=mr.role_id
                 WHERE mr.user_id=u.id AND mr.space_id=%s
                 ORDER BY r."position" DESC LIMIT 1) AS role_icon
         FROM members m JOIN users u ON u.id=m.user_id
@@ -1144,7 +1177,8 @@ def on_message(data):
                    (channel_id, uid, msg, m_everyone, m_here))
         menzioni.salva(db, riga["id"], m_utenti, m_ruoli)
 
-        c = uno(db, """SELECT r.color, r.name, r.icon FROM member_roles mr
+        c = uno(db, f"""SELECT r.color, r.name, {sel_icon()} AS icon
+                       FROM member_roles mr
                        JOIN roles r ON r.id=mr.role_id
                        WHERE mr.user_id=%s AND mr.space_id=%s
                        ORDER BY r."position" DESC LIMIT 1""", (uid, space_id))
@@ -1365,7 +1399,7 @@ def comando(uid, sid, space_id, msg):
                                sid=sid)
             return socketio.emit("open_role_creator",
                                  {"role_name": nome, "modifica": True,
-                                  "color": r["color"], "icon": r["icon"],
+                                  "color": r["color"], "icon": r.get("icon"),
                                   "icone": icone_disponibili()}, room=sid)
 
         if cmd == "/delrole":
@@ -1555,17 +1589,28 @@ def on_create_role(data):
             if esistente["position"] >= posizione(db, uid, space_id):
                 return sistema("Non puoi modificare un ruolo pari o superiore al tuo.",
                                sid=sid)
-            db.execute("UPDATE roles SET color=%s, icon=%s WHERE id=%s",
-                       (colore, icona, esistente["id"]))
+            if HA_COLONNA_ICON:
+                db.execute("UPDATE roles SET color=%s, icon=%s WHERE id=%s",
+                           (colore, icona, esistente["id"]))
+            else:
+                db.execute("UPDATE roles SET color=%s WHERE id=%s",
+                           (colore, esistente["id"]))
             testo = f"Ruolo '{nome}' aggiornato."
         else:
             if esistente:
                 return sistema("Ruolo già esistente.", sid=sid)
             try:
-                db.execute("""INSERT INTO roles
-                                (space_id, name, color, permissions, "position", icon)
-                              VALUES (%s,%s,%s,%s,1,%s)""",
-                           (space_id, nome, colore, SEND_MESSAGES, icona))
+                if HA_COLONNA_ICON:
+                    db.execute("""INSERT INTO roles
+                                    (space_id, name, color, permissions,
+                                     "position", icon)
+                                  VALUES (%s,%s,%s,%s,1,%s)""",
+                               (space_id, nome, colore, SEND_MESSAGES, icona))
+                else:
+                    db.execute("""INSERT INTO roles
+                                    (space_id, name, color, permissions, "position")
+                                  VALUES (%s,%s,%s,%s,1)""",
+                               (space_id, nome, colore, SEND_MESSAGES))
             except psycopg.errors.UniqueViolation:
                 return sistema("Ruolo già esistente.", sid=sid)
             testo = f"Ruolo '{nome}' creato."

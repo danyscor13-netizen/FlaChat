@@ -21,7 +21,7 @@ persistente. Flask + Socket.IO + Postgres.
 | `migrazione_icone.sql` | colonna `roles.icon` per l'icona scelta a mano |
 | `test_retention.py` | 19 test sulla scadenza |
 | `test_perms.py` | 28 test sui permessi |
-| `test_consegna.py` | 38 test su consegna, riconnessione, ruoli/icone e pooler |
+| `test_consegna.py` | 43 test su consegna, riconnessione, ruoli/icone e pooler |
 | `check_js.py` | verifica la sintassi del JS nei template |
 | `render.yaml` | configurazione dell'hosting |
 | `DEPLOY.md` | istruzioni per il deploy su Render |
@@ -228,6 +228,13 @@ I file attualmente presenti sono segnaposto, da sostituire con i
 tuoi. L'icona compare accanto al nome nei messaggi e nell'elenco dei
 membri, ed e' alta quanto il testo: e' un dettaglio, non un
 distintivo.
+
+La colonna `roles.icon` arriva con `migrazione_icone.sql`. Se non e'
+ancora stata eseguita l'app parte lo stesso: rileva la colonna
+all'avvio (`rileva_colonna_icon()`), stampa un avviso nei log e
+continua usando solo il file omonimo. Si perde la scelta manuale, non
+la chat. Prima di questo controllo la colonna mancante faceva tornare
+500 a `/api/messages` su ogni canale, cioe' chat inutilizzabile.
 
 **Sceglierla a mano.** `/newrole <nome>` e `/changerole <nome>` aprono
 lo stesso pannello: colore, piu' una griglia con tutte le icone della
