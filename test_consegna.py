@@ -52,6 +52,8 @@ def main():
     r = c1.post("/lobby", data={"azione": "crea", "nome": "Prove"},
                 follow_redirects=False)
     code = r.headers["Location"].rsplit("/", 1)[-1]
+    with A.get_db() as db:
+        sp_id = A.uno(db, "SELECT id FROM spaces WHERE code=%s", (code,))["id"]
 
     c2 = A.app.test_client()
     c2.post("/register", data={"username": "dany", "password": "pw"})
@@ -176,6 +178,87 @@ def main():
           storico and all("role" in m for m in storico))
     check("e il ruolo e' quello giusto",
           any(m["role"] == "owner" for m in storico))
+
+    print("\nRUOLI: ICONA E MODIFICA")
+
+    disp = {i["file"] for i in A.icone_disponibili()}
+    check("l'elenco per il pannello vede tutti i file",
+          {"owner.svg", "admin.svg", "mod.svg"} <= disp)
+
+    # retrocompatibilita': icon NULL -> ricade sul file omonimo, cosi'
+    # le stanze nate prima della colonna non perdono le icone
+    check("icon NULL ricade sul file omonimo",
+          A.url_icona("owner", None) == "/static/icons/owner.svg")
+    check("icon vuota vuol dire davvero nessuna icona",
+          A.url_icona("owner", "") == "")
+    check("icon valorizzata vince sul nome",
+          A.url_icona("mod", "admin.svg") == "/static/icons/admin.svg")
+    check("ruolo senza file e senza scelta: nessuna icona",
+          A.url_icona("user", None) == "")
+
+    # --- /newrole con icona scelta a mano
+    s1b.get_received()
+    s1b.emit("message", {"msg": "/newrole capo"}, callback=True)
+    ev = [dati(e) for e in eventi(s1b, "open_role_creator")]
+    check("/newrole apre il pannello in modalita' creazione",
+          ev and ev[0].get("modifica") is False)
+    check("e porta l'elenco delle icone disponibili",
+          ev and len(ev[0].get("icone", [])) >= 3)
+
+    s1b.emit("create_role", {"role_name": "capo", "color": "#ff0000",
+                             "icon": "admin.svg", "modifica": False})
+    with A.get_db() as db:
+        r = A.uno(db, "SELECT * FROM roles WHERE space_id=%s AND name='capo'",
+                  (sp_id,))
+    check("il ruolo nasce con l'icona scelta",
+          r and r["icon"] == "admin.svg" and r["color"] == "#ff0000")
+
+    # --- /changerole
+    s1b.get_received()
+    s1b.emit("message", {"msg": "/changerole capo"}, callback=True)
+    ev = [dati(e) for e in eventi(s1b, "open_role_creator")]
+    check("/changerole apre il pannello in modalita' modifica",
+          ev and ev[0].get("modifica") is True)
+    check("e lo apre gia' compilato con colore e icona attuali",
+          ev and ev[0].get("color") == "#ff0000"
+          and ev[0].get("icon") == "admin.svg")
+
+    s1b.emit("create_role", {"role_name": "capo", "color": "#00ff00",
+                             "icon": "mod.svg", "modifica": True})
+    with A.get_db() as db:
+        r = A.uno(db, "SELECT * FROM roles WHERE space_id=%s AND name='capo'",
+                  (sp_id,))
+        n = A.uno(db, "SELECT COUNT(*) AS n FROM roles WHERE space_id=%s AND name='capo'",
+                  (sp_id,))["n"]
+    check("la modifica aggiorna colore e icona",
+          r and r["color"] == "#00ff00" and r["icon"] == "mod.svg")
+    check("e non crea un doppione", n == 1)
+
+    s1b.get_received()
+    s1b.emit("message", {"msg": "/changerole inesistente"}, callback=True)
+    msgs = [dati(e).get("msg", "") for e in eventi(s1b, "message")]
+    check("/changerole su un ruolo che non c'e' suggerisce /newrole",
+          any("/newrole inesistente" in m for m in msgs))
+
+    # --- un file inventato non deve finire nel database
+    s1b.emit("create_role", {"role_name": "capo", "icon": "../../etc/passwd",
+                             "color": "#00ff00", "modifica": True})
+    with A.get_db() as db:
+        r = A.uno(db, "SELECT icon FROM roles WHERE space_id=%s AND name='capo'",
+                  (sp_id,))
+    check("un file non presente in cartella viene scartato", r["icon"] == "")
+
+    # --- l'icona del ruolo arriva nei messaggi
+    # (rimessa: il test qui sopra l'ha azzerata di proposito)
+    s1b.emit("create_role", {"role_name": "capo", "icon": "mod.svg",
+                             "color": "#00ff00", "modifica": True})
+    s1b.emit("message", {"msg": "/role dany capo"}, callback=True)
+    s2b.get_received()
+    s2b.emit("message", {"msg": "sono capo", "tmp": "t6"}, callback=True)
+    eco = [dati(e) for e in eventi(s2b, "message")]
+    mio = [d for d in eco if d.get("tmp") == "t6"]
+    check("il messaggio porta l'url dell'icona del ruolo",
+          mio and mio[0].get("icon") == "/static/icons/mod.svg")
 
     print("\nPOOLER SUPABASE")
 

@@ -137,7 +137,7 @@ ICONE_EXT = (".svg", ".png", ".webp", ".gif", ".jpg", ".jpeg")
 
 
 def mappa_icone():
-    """{nome_ruolo: url} per i ruoli che hanno un file nella cartella."""
+    """{nome_ruolo: url} per i ruoli che hanno un file omonimo."""
     out = {}
     try:
         for f in sorted(os.listdir(ICONE_DIR)):
@@ -147,6 +147,44 @@ def mappa_icone():
     except FileNotFoundError:
         pass          # cartella non ancora creata: nessuna icona, fine
     return out
+
+
+def icone_disponibili():
+    """
+    Tutti i file della cartella, per il menu di scelta.
+
+    Riletta a ogni apertura del pannello, non una volta all'avvio: se
+    butti dentro un file mentre il server gira lo trovi subito, senza
+    riavviare. Sono una manciata di voci, costa niente.
+    """
+    out = []
+    try:
+        for f in sorted(os.listdir(ICONE_DIR)):
+            base, ext = os.path.splitext(f)
+            if ext.lower() in ICONE_EXT:
+                out.append({"file": f, "nome": base.lower(),
+                            "url": f"/static/icons/{f}"})
+    except FileNotFoundError:
+        pass
+    return out
+
+
+def url_icona(nome_ruolo, icon=None):
+    """
+    L'icona di un ruolo.
+
+      icon valorizzata      -> quel file (scelto a mano)
+      icon = stringa vuota  -> nessuna icona, scelta esplicita
+      icon = NULL           -> il file che si chiama come il ruolo, se c'e'
+
+    L'ultimo caso e' quello delle stanze nate prima che si potesse
+    scegliere: continuano a mostrare owner/admin/mod senza migrazioni.
+    """
+    if icon:
+        return f"/static/icons/{icon}"
+    if icon == "":
+        return ""
+    return mappa_icone().get((nome_ruolo or "").lower(), "")
 
 
 ICONE = mappa_icone()
@@ -441,8 +479,7 @@ def chat(code):
         entra_space(db, sp["id"], uid)
 
     return render_template("chat.html", username=session["username"],
-                           space_name=sp["name"], code=sp["code"],
-                           icone=ICONE)
+                           space_name=sp["name"], code=sp["code"])
 
 
 @app.route("/api/messages/<int:channel_id>")
@@ -471,11 +508,15 @@ def api_messages(channel_id):
                         (SELECT r.name FROM member_roles mr
                          JOIN roles r ON r.id = mr.role_id
                          WHERE mr.user_id = u.id AND mr.space_id = %s
-                         ORDER BY r."position" DESC LIMIT 1) AS role
+                         ORDER BY r."position" DESC LIMIT 1) AS role,
+                        (SELECT r.icon FROM member_roles mr
+                         JOIN roles r ON r.id = mr.role_id
+                         WHERE mr.user_id = u.id AND mr.space_id = %s
+                         ORDER BY r."position" DESC LIMIT 1) AS role_icon
                  FROM messages m
                  LEFT JOIN users u ON u.id = m.author_id
                  WHERE m.channel_id = %s AND m.deleted_at IS NULL"""
-        par = [ch["space_id"], ch["space_id"], channel_id]
+        par = [ch["space_id"], ch["space_id"], ch["space_id"], channel_id]
         if before:
             sql += " AND m.id < %s"
             par.append(before)
@@ -490,6 +531,7 @@ def api_messages(channel_id):
         "msg": r["content"],
         "color": r["color"] or "#cccccc",
         "role": r["role"] or "",
+        "icon": url_icona(r["role"], r["role_icon"]),
         "ts": ts(r["created_at"]),
         "own": r["uid"] == uid,
     } for r in reversed(righe)])
@@ -911,13 +953,17 @@ def utenti_stanza(db, space_id):
                 ORDER BY r."position" DESC LIMIT 1) AS color,
                (SELECT r.name FROM member_roles mr JOIN roles r ON r.id=mr.role_id
                 WHERE mr.user_id=u.id AND mr.space_id=%s
-                ORDER BY r."position" DESC LIMIT 1) AS role
+                ORDER BY r."position" DESC LIMIT 1) AS role,
+               (SELECT r.icon FROM member_roles mr JOIN roles r ON r.id=mr.role_id
+                WHERE mr.user_id=u.id AND mr.space_id=%s
+                ORDER BY r."position" DESC LIMIT 1) AS role_icon
         FROM members m JOIN users u ON u.id=m.user_id
         WHERE m.space_id=%s
-    """, (space_id, space_id, space_id))
+    """, (space_id, space_id, space_id, space_id))
 
     out = [{"id": r["id"], "username": r["username"],
             "color": r["color"] or "#cccccc", "role": r["role"] or "user",
+            "icon": url_icona(r["role"], r["role_icon"]),
             "online": r["id"] in connessi} for r in righe]
     out.sort(key=lambda u: (not u["online"], u["username"].lower()))
     return out
@@ -1098,12 +1144,13 @@ def on_message(data):
                    (channel_id, uid, msg, m_everyone, m_here))
         menzioni.salva(db, riga["id"], m_utenti, m_ruoli)
 
-        c = uno(db, """SELECT r.color, r.name FROM member_roles mr
+        c = uno(db, """SELECT r.color, r.name, r.icon FROM member_roles mr
                        JOIN roles r ON r.id=mr.role_id
                        WHERE mr.user_id=%s AND mr.space_id=%s
                        ORDER BY r."position" DESC LIMIT 1""", (uid, space_id))
         colore = c["color"] if c else "#cccccc"
         ruolo = c["name"] if c else ""
+        icona = url_icona(ruolo, c["icon"] if c else None)
         segna_letto(db, uid, channel_id)
 
         connessi = set(online.get(space_id, {}).values())
@@ -1112,7 +1159,7 @@ def on_message(data):
             m_everyone, m_here, uid, connessi)
 
         payload = {"type": "chat", "id": riga["id"], "username": session.get("username"),
-                   "msg": msg, "color": colore, "role": ruolo,
+                   "msg": msg, "color": colore, "role": ruolo, "icon": icona,
                    "channel_id": channel_id,
                    "ts": ts(riga["created_at"])}
 
@@ -1295,7 +1342,31 @@ def comando(uid, sid, space_id, msg):
             if uno(db, "SELECT 1 FROM roles WHERE space_id=%s AND name=%s",
                    (space_id, nome)):
                 return sistema("Ruolo già esistente.", sid=sid)
-            return socketio.emit("open_role_creator", {"role_name": nome}, room=sid)
+            return socketio.emit("open_role_creator",
+                                 {"role_name": nome, "modifica": False,
+                                  "color": "#cccccc", "icon": None,
+                                  "icone": icone_disponibili()}, room=sid)
+
+        if cmd == "/changerole":
+            if not puo(db, uid, space_id, MANAGE_ROLES):
+                return sistema("Non hai i permessi.", sid=sid)
+            if len(parti) < 2:
+                return sistema("Uso: /changerole <nome>", sid=sid)
+            nome = parti[1].strip().lower()[:32]
+            r = uno(db, "SELECT * FROM roles WHERE space_id=%s AND name=%s",
+                    (space_id, nome))
+            if not r:
+                return sistema("Ruolo non trovato. Per crearlo: "
+                               f"/newrole {nome}", sid=sid)
+            # stessa regola di /delrole: non si tocca chi sta al tuo
+            # livello o sopra, altrimenti un mod ridipinge il ruolo owner
+            if r["position"] >= posizione(db, uid, space_id):
+                return sistema("Non puoi modificare un ruolo pari o superiore al tuo.",
+                               sid=sid)
+            return socketio.emit("open_role_creator",
+                                 {"role_name": nome, "modifica": True,
+                                  "color": r["color"], "icon": r["icon"],
+                                  "icone": icone_disponibili()}, room=sid)
 
         if cmd == "/delrole":
             if not puo(db, uid, space_id, MANAGE_ROLES):
@@ -1443,13 +1514,15 @@ def comando(uid, sid, space_id, msg):
 
         if cmd == "/help":
             return sistema("Comandi: /newchannel /delchannel /role /newrole "
-                           "/delrole /perms /kick /ban /unban /retention /help", sid=sid)
+                           "/changerole /delrole /perms /kick /ban /unban "
+                           "/retention /help", sid=sid)
 
         return sistema(f"Comando sconosciuto: {cmd}", sid=sid)
 
 
 @socketio.on("create_role")
 def on_create_role(data):
+    """Crea un ruolo, oppure ne aggiorna colore e icona (/changerole)."""
     uid = session.get("user_id")
     sid = request.sid
     space_id = sid_space.get(sid)
@@ -1461,17 +1534,47 @@ def on_create_role(data):
     if not nome:
         return
 
+    # None = decidi tu (file omonimo), "" = nessuna icona, "x.svg" = quella
+    icona = data.get("icon")
+    if icona is not None:
+        validi = {i["file"] for i in icone_disponibili()}
+        icona = icona if icona in validi else ""
+
     with get_db() as db:
         if not puo(db, uid, space_id, MANAGE_ROLES):
             return
-        try:
-            db.execute("""INSERT INTO roles (space_id, name, color, permissions, "position")
-                          VALUES (%s,%s,%s,%s,1)""",
-                       (space_id, nome, colore, SEND_MESSAGES))
-        except psycopg.errors.UniqueViolation:
-            return sistema("Ruolo già esistente.", sid=sid)
 
-    sistema(f"Ruolo '{nome}' creato.", space_id=space_id)
+        esistente = uno(db, "SELECT * FROM roles WHERE space_id=%s AND name=%s",
+                        (space_id, nome))
+
+        if data.get("modifica"):
+            if not esistente:
+                return sistema("Ruolo non trovato.", sid=sid)
+            # ricontrollato qui: fra l'apertura del pannello e il salvataggio
+            # il ruolo di chi salva puo' essere cambiato
+            if esistente["position"] >= posizione(db, uid, space_id):
+                return sistema("Non puoi modificare un ruolo pari o superiore al tuo.",
+                               sid=sid)
+            db.execute("UPDATE roles SET color=%s, icon=%s WHERE id=%s",
+                       (colore, icona, esistente["id"]))
+            testo = f"Ruolo '{nome}' aggiornato."
+        else:
+            if esistente:
+                return sistema("Ruolo già esistente.", sid=sid)
+            try:
+                db.execute("""INSERT INTO roles
+                                (space_id, name, color, permissions, "position", icon)
+                              VALUES (%s,%s,%s,%s,1,%s)""",
+                           (space_id, nome, colore, SEND_MESSAGES, icona))
+            except psycopg.errors.UniqueViolation:
+                return sistema("Ruolo già esistente.", sid=sid)
+            testo = f"Ruolo '{nome}' creato."
+
+        # commit prima di trasmettere: manda_utenti usa un'altra
+        # connessione del pool e non vedrebbe le scritture ancora aperte
+        db.commit()
+
+    sistema(testo, space_id=space_id)
     manda_utenti(space_id)
 
 

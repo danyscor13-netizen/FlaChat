@@ -94,6 +94,9 @@ CREATE TABLE IF NOT EXISTS roles (
     "position"  INTEGER NOT NULL DEFAULT 0,
     is_default  BOOLEAN NOT NULL DEFAULT false,
     mentionable BOOLEAN NOT NULL DEFAULT true,
+    -- nome del file in static/icons/. NULL = usa il file che si chiama
+    -- come il ruolo, se c'e'; altrimenti nessuna icona.
+    icon        TEXT,
     UNIQUE (space_id, name)
 );
 

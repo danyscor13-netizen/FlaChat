@@ -18,9 +18,10 @@ persistente. Flask + Socket.IO + Postgres.
 | `test_app.py` | 22 test end-to-end |
 | `test_menzioni.py` | 38 test su menzioni e notifiche |
 | `migrazione_retention.sql` | scadenza messaggi + tabelle allegati |
+| `migrazione_icone.sql` | colonna `roles.icon` per l'icona scelta a mano |
 | `test_retention.py` | 19 test sulla scadenza |
 | `test_perms.py` | 28 test sui permessi |
-| `test_consegna.py` | 24 test su consegna, riconnessione, icone e pooler |
+| `test_consegna.py` | 38 test su consegna, riconnessione, ruoli/icone e pooler |
 | `check_js.py` | verifica la sintassi del JS nei template |
 | `render.yaml` | configurazione dell'hosting |
 | `DEPLOY.md` | istruzioni per il deploy su Render |
@@ -226,7 +227,37 @@ cosi' di proposito.
 I file attualmente presenti sono segnaposto, da sostituire con i
 tuoi. L'icona compare accanto al nome nei messaggi e nell'elenco dei
 membri, ed e' alta quanto il testo: e' un dettaglio, non un
-distintivo. Se aggiungi file mentre il server gira, va riavviato.
+distintivo.
+
+**Sceglierla a mano.** `/newrole <nome>` e `/changerole <nome>` aprono
+lo stesso pannello: colore, piu' una griglia con tutte le icone della
+cartella. L'elenco viene riletto a ogni apertura, quindi un file
+aggiunto mentre il server gira si vede subito, senza riavviare.
+
+La scelta finisce in `roles.icon` e ha tre stati:
+
+| valore | significato |
+|---|---|
+| `NULL` | decidi tu: il file che si chiama come il ruolo, se c'e' |
+| `''` | nessuna icona, scelta esplicita |
+| `capo.svg` | quel file |
+
+`NULL` e' il default perche' e' quello che tiene in piedi le stanze
+nate prima di questa colonna: continuano a mostrare owner/admin/mod
+senza che nessuno debba andare a risistemarle a mano. La voce
+"Automatica" nel pannello compare solo se un file omonimo esiste
+davvero, altrimenti sarebbe una scelta che non fa niente.
+
+Il nome del file viene validato contro il contenuto della cartella
+prima di salvarlo: quello che arriva dal client non finisce mai
+dritto in un percorso.
+
+`/changerole` modifica il ruolo (colore e icona). Per assegnare un
+ruolo a una persona c'e' `/role <utente> <ruolo>`, che esisteva gia'.
+Valgono le stesse regole di `/delrole`: non si tocca un ruolo di
+posizione pari o superiore alla propria, altrimenti un mod potrebbe
+ridipingere il ruolo owner. Il controllo e' rifatto al salvataggio,
+non solo all'apertura del pannello.
 
 
 ## Perche' `prepare_threshold=None`

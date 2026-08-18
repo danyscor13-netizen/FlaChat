@@ -12,11 +12,16 @@
 
     <div id="role-creator" class="modal" style="display:none;">
         <div class="modal-box">
-            <h3>Crea ruolo: <span id="role-creator-name"></span></h3>
-            <label>Scegli un colore</label>
+            <h3><span id="role-creator-titolo">Crea ruolo</span>:
+                <span id="role-creator-name"></span></h3>
+            <label>Colore</label>
             <input type="color" id="role-color-picker" value="#cccccc">
+            <label>Icona</label>
+            <div id="role-icone" class="role-icone"></div>
+            <p id="role-icone-vuoto" class="role-icone-vuoto" style="display:none;">
+                Nessun file in static/icons/. Mettine uno e riapri il pannello.</p>
             <div class="modal-actions">
-                <button onclick="confirmRole()">Crea</button>
+                <button id="role-conferma" onclick="confirmRole()">Crea</button>
                 <button class="btn-secondary" onclick="closeRoleCreator()">Annulla</button>
             </div>
         </div>
@@ -137,12 +142,10 @@
     const myName = "{{ username }}";
     const code   = "{{ code }}";
 
-    /* Ruolo -> file dell'icona, letto dal server all'avvio.
-       Se un ruolo non ha il file, semplicemente non compare niente. */
-    const ICONE = {{ icone | tojson }};
-
-    function nodoIcona(ruolo) {
-        const url = ICONE[(ruolo || '').toLowerCase()];
+    /* L'icona arriva gia' risolta dal server (campo 'icon'): tiene
+       conto sia di quella scelta a mano sul ruolo sia del file
+       omonimo. Il client non deve indovinare niente. */
+    function nodoIcona(ruolo, url) {
         if (!url) return null;
         const img = document.createElement('img');
         img.className = 'role-icon';
@@ -153,7 +156,8 @@
     }
 
     let currentChannel = null;
-    let mioRuolo       = '';   // serve all'anteprima dei propri messaggi
+    let mioRuolo       = '';   // servono all'anteprima dei propri messaggi
+    let miaIcona       = '';
     let mentionables   = [];   // utenti e ruoli menzionabili
     let channelsData   = [];
     let oldestId       = null;   // cursore per il "carica altri"
@@ -265,7 +269,7 @@
         const nome = document.createElement('span');
         nome.className = 'msg-name';
         nome.style.color = d.color;
-        const icona = nodoIcona(d.role);
+        const icona = nodoIcona(d.role, d.icon);
         if (icona) nome.appendChild(icona);
         nome.appendChild(document.createTextNode(d.username));
 
@@ -462,7 +466,7 @@
 
     socket.on('update_users', function (users) {
         const io_ = users.find(function (u) { return u.username === myName; });
-        if (io_) mioRuolo = io_.role;
+        if (io_) { mioRuolo = io_.role; miaIcona = io_.icon; }
         caricaMentionables();
         const list = document.getElementById('user-list');
         list.innerHTML = '';
@@ -471,7 +475,7 @@
             if (!u.online) li.classList.add('offline');
             li.style.color = u.color;
             li.title = u.role;
-            const icona = nodoIcona(u.role);
+            const icona = nodoIcona(u.role, u.icon);
             if (icona) li.appendChild(icona);
             const n = document.createElement('span');
             n.className = 'user-nome';
@@ -532,7 +536,8 @@
         if (!msg.startsWith('/')) {
             voce.nodo = appendi({
                 type: 'chat', own: true, username: myName, msg: msg,
-                color: '', role: mioRuolo, ts: Date.now() / 1000, tmp: voce.tmp
+                color: '', role: mioRuolo, icon: miaIcona,
+                ts: Date.now() / 1000, tmp: voce.tmp
             });
             voce.nodo.classList.add('in-attesa');
         }
@@ -1148,17 +1153,76 @@
 
 
     let pendingRoleName = null;
+    let pendingModifica = false;
+    let iconeScelta     = null;   // null = automatica, '' = nessuna
+    let iconeElenco     = [];
 
+    /* Lo stesso pannello serve a creare (/newrole) e a modificare
+       (/changerole): cambiano solo il titolo, il pulsante e i valori
+       di partenza. */
     socket.on('open_role_creator', function (d) {
         pendingRoleName = d.role_name;
+        pendingModifica = !!d.modifica;
+        iconeElenco     = d.icone || [];
+        iconeScelta     = d.icon === undefined ? null : d.icon;
+
+        document.getElementById('role-creator-titolo').textContent =
+            pendingModifica ? 'Modifica ruolo' : 'Crea ruolo';
         document.getElementById('role-creator-name').textContent = d.role_name;
+        document.getElementById('role-conferma').textContent =
+            pendingModifica ? 'Salva' : 'Crea';
+        document.getElementById('role-color-picker').value = d.color || '#cccccc';
+
+        disegnaIcone();
         document.getElementById('role-creator').style.display = 'flex';
     });
+
+    function disegnaIcone() {
+        const cont = document.getElementById('role-icone');
+        cont.innerHTML = '';
+        document.getElementById('role-icone-vuoto').style.display =
+            iconeElenco.length ? 'none' : 'block';
+
+        /* "Automatica" c'e' solo se esiste un file che si chiama come il
+           ruolo: altrimenti sarebbe una scelta che non fa niente. */
+        const omonima = iconeElenco.find(function (i) {
+            return i.nome === pendingRoleName.toLowerCase();
+        });
+
+        const voci = [];
+        if (omonima) voci.push({ val: null, url: omonima.url, testo: 'Automatica' });
+        voci.push({ val: '', url: null, testo: 'Nessuna' });
+        iconeElenco.forEach(function (i) {
+            voci.push({ val: i.file, url: i.url, testo: i.nome });
+        });
+
+        voci.forEach(function (v) {
+            const b = document.createElement('button');
+            b.type = 'button';
+            b.className = 'role-icona' + (v.val === iconeScelta ? ' scelta' : '');
+            b.title = v.testo;
+            if (v.url) {
+                const img = document.createElement('img');
+                img.src = v.url;
+                img.alt = v.testo;
+                b.appendChild(img);
+            } else {
+                b.appendChild(document.createTextNode('\u2014'));
+            }
+            const et = document.createElement('span');
+            et.textContent = v.testo;
+            b.appendChild(et);
+            b.onclick = function () { iconeScelta = v.val; disegnaIcone(); };
+            cont.appendChild(b);
+        });
+    }
 
     function confirmRole() {
         if (!pendingRoleName) return;
         socket.emit('create_role', {
             role_name: pendingRoleName,
+            modifica: pendingModifica,
+            icon: iconeScelta,
             color: document.getElementById('role-color-picker').value
         });
         closeRoleCreator();
@@ -1167,6 +1231,7 @@
     function closeRoleCreator() {
         document.getElementById('role-creator').style.display = 'none';
         pendingRoleName = null;
+        pendingModifica = false;
     }
     </script>
 </body>
