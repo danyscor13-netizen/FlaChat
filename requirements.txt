@@ -11,6 +11,10 @@ cryptography
 gunicorn
 gevent
 gevent-websocket
-
-# packages
+# gunicorn.workers.ggevent importa packaging ma non lo dichiara fra le
+# proprie dipendenze: senza questa riga il worker WebSocket non si
+# carica e il deploy muore con
+#   class uri 'geventwebsocket.gunicorn.workers.GeventWebSocketWorker'
+#   invalid or not found: ModuleNotFoundError: No module named 'packaging'
+# Finora arrivava di rimbalzo da qualche altro pacchetto, poi ha smesso.
 packaging

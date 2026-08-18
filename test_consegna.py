@@ -403,6 +403,21 @@ def main():
     check("e il file omonimo continua a fare da icona",
           any(m["icon"] == "/static/icons/owner.svg" for m in storico))
 
+    # l'icona scelta senza colonna non deve sparire in silenzio:
+    # e' cosi' che il problema era passato inosservato
+    s1c.get_received()
+    s1c.emit("message", {"msg": "/changerole vice"}, callback=True)
+    ev = [dati(e) for e in eventi(s1c, "open_role_creator")]
+    check("il pannello avvisa che la migrazione manca",
+          ev and ev[0].get("migrazione") is False)
+
+    s1c.get_received()
+    s1c.emit("create_role", {"role_name": "vice", "color": "#123456",
+                             "icon": "owner.svg", "modifica": True})
+    avvisi = [dati(e).get("msg", "") for e in eventi(s1c, "message")]
+    check("e al salvataggio dice che l'icona non e' stata salvata",
+          any("Icona NON salvata" in m for m in avvisi))
+
     # rimessa: le altre suite girano sullo schema completo
     with A.get_db() as db:
         db.execute("ALTER TABLE roles ADD COLUMN IF NOT EXISTS icon TEXT")

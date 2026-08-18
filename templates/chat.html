@@ -1185,7 +1185,9 @@
                                                 url: iconeScelta,
                                                 nome: 'caricata' }]);
         }
-        statoUpload('');
+        statoUpload(d.migrazione === false
+            ? 'Manca migrazione_icone.sql: l\'icona non verra\' salvata.'
+            : '', d.migrazione === false ? 'ko' : '');
         disegnaIcone();
         document.getElementById('role-creator').style.display = 'flex';
     });

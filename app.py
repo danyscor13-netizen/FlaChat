@@ -1562,6 +1562,7 @@ def comando(uid, sid, space_id, msg):
             return socketio.emit("open_role_creator",
                                  {"role_name": nome, "modifica": False,
                                   "color": "#cccccc", "icon": None,
+                                  "migrazione": HA_COLONNA_ICON,
                                   "icone": icone_disponibili()}, room=sid)
 
         if cmd == "/changerole":
@@ -1580,9 +1581,14 @@ def comando(uid, sid, space_id, msg):
             if r["position"] >= posizione(db, uid, space_id):
                 return sistema("Non puoi modificare un ruolo pari o superiore al tuo.",
                                sid=sid)
+            if not HA_COLONNA_ICON:
+                sistema("Nota: manca la colonna roles.icon (esegui "
+                        "migrazione_icone.sql). Il colore si salva, "
+                        "l'icona scelta no.", sid=sid)
             return socketio.emit("open_role_creator",
                                  {"role_name": nome, "modifica": True,
                                   "color": r["color"], "icon": r.get("icon"),
+                                  "migrazione": HA_COLONNA_ICON,
                                   "icone": icone_disponibili()}, room=sid)
 
         if cmd == "/delrole":
@@ -1779,6 +1785,9 @@ def on_create_role(data):
             else:
                 db.execute("UPDATE roles SET color=%s WHERE id=%s",
                            (colore, esistente["id"]))
+                if icona:
+                    sistema("Icona NON salvata: manca la colonna roles.icon. "
+                            "Esegui migrazione_icone.sql e riprova.", sid=sid)
             testo = f"Ruolo '{nome}' aggiornato."
         else:
             if esistente:
