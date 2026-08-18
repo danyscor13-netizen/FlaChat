@@ -11,3 +11,6 @@ cryptography
 gunicorn
 gevent
 gevent-websocket
+
+# packages
+packaging
