@@ -41,8 +41,21 @@ if not DATABASE_URL:
 # Il pooler di Supabase (porta 6543) è già un pool lato server, ma un pool
 # lato client evita di riaprire una connessione TCP a ogni query: su rete
 # remota il handshake costa più della query stessa.
+#
+# prepare_threshold=None è obbligatorio con quel pooler. psycopg3, dopo
+# cinque esecuzioni della stessa query, la "prepara" sul server e poi la
+# richiama per nome (_pg3_0, _pg3_1...). Ma il pooler è in transaction
+# mode: ogni transazione può finire su una connessione server diversa,
+# dove quel nome non esiste mai stato. Da lì l'errore
+#   prepared statement "_pg3_0" does not exist
+# che compare a caso dopo un po' di traffico, sulle query più usate —
+# esattamente quelle che rendono la chat inutilizzabile. Disattivandoli
+# ogni query viaggia per intero: si perde una micro-ottimizzazione che
+# con questo pooler non funzionerebbe comunque.
 pool = ConnectionPool(DATABASE_URL, min_size=1, max_size=10,
-                      kwargs={"row_factory": dict_row}, open=True)
+                      kwargs={"row_factory": dict_row,
+                              "prepare_threshold": None},
+                      open=True)
 
 
 @contextmanager

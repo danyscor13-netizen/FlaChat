@@ -20,7 +20,7 @@ persistente. Flask + Socket.IO + Postgres.
 | `migrazione_retention.sql` | scadenza messaggi + tabelle allegati |
 | `test_retention.py` | 19 test sulla scadenza |
 | `test_perms.py` | 28 test sui permessi |
-| `test_consegna.py` | 23 test su consegna, riconnessione e icone dei ruoli |
+| `test_consegna.py` | 24 test su consegna, riconnessione, icone e pooler |
 | `check_js.py` | verifica la sintassi del JS nei template |
 | `render.yaml` | configurazione dell'hosting |
 | `DEPLOY.md` | istruzioni per il deploy su Render |
@@ -227,3 +227,23 @@ I file attualmente presenti sono segnaposto, da sostituire con i
 tuoi. L'icona compare accanto al nome nei messaggi e nell'elenco dei
 membri, ed e' alta quanto il testo: e' un dettaglio, non un
 distintivo. Se aggiungi file mentre il server gira, va riavviato.
+
+
+## Perche' `prepare_threshold=None`
+
+Con il pooler di Supabase sulla 6543 non e' un'opzione: e' obbligatorio.
+
+psycopg3, dopo cinque esecuzioni della stessa query, la prepara sul
+server e poi la richiama per nome (`_pg3_0`, `_pg3_1`...). Il pooler
+pero' e' in *transaction mode*: ogni transazione puo' finire su una
+connessione server diversa, dove quel nome non e' mai esistito. Il
+risultato sono errori sparsi, che compaiono solo dopo un po' di
+traffico e colpiscono le query piu' usate:
+
+    prepared statement "_pg3_0" does not exist
+
+Disattivandoli ogni query viaggia per intero. Si perde una
+micro-ottimizzazione che con questo pooler non funzionerebbe comunque.
+
+Se un giorno passi alla connessione diretta (porta 5432, session mode)
+puoi rimettere il default e riguadagnarla.

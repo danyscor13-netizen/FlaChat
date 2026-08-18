@@ -177,6 +177,18 @@ def main():
     check("e il ruolo e' quello giusto",
           any(m["role"] == "owner" for m in storico))
 
+    print("\nPOOLER SUPABASE")
+
+    # Il pooler è in transaction mode: un prepared statement creato su
+    # una connessione server non esiste sulla successiva. Se psycopg ne
+    # crea anche uno solo, in produzione tornano i
+    #   prepared statement "_pg3_N" does not exist
+    with A.get_db() as db:
+        for _ in range(12):           # oltre la soglia di 5 di psycopg
+            A.uno(db, "SELECT 1 AS x")
+        n = A.uno(db, "SELECT COUNT(*) AS n FROM pg_prepared_statements")["n"]
+    check("nessun prepared statement creato sul server", n == 0)
+
     print("\nTUTTO OK" if ok else "\nCI SONO ERRORI")
     return 0 if ok else 1
 
