@@ -20,6 +20,12 @@
             <div id="role-icone" class="role-icone"></div>
             <p id="role-icone-vuoto" class="role-icone-vuoto" style="display:none;">
                 Nessun file in static/icons/. Mettine uno e riapri il pannello.</p>
+            <div class="role-upload">
+                <input type="file" id="role-file" accept="image/*" style="display:none;">
+                <button type="button" class="btn-link" onclick="scegliFile()">
+                    Carica un'immagine</button>
+                <span id="role-upload-stato" class="role-upload-stato"></span>
+            </div>
             <div class="modal-actions">
                 <button id="role-conferma" onclick="confirmRole()">Crea</button>
                 <button class="btn-secondary" onclick="closeRoleCreator()">Annulla</button>
@@ -1173,6 +1179,13 @@
             pendingModifica ? 'Salva' : 'Crea';
         document.getElementById('role-color-picker').value = d.color || '#cccccc';
 
+        /* un'icona gia' caricata compare in griglia come le altre */
+        if ((iconeScelta || '').startsWith('http')) {
+            iconeElenco = iconeElenco.concat([{ file: iconeScelta,
+                                                url: iconeScelta,
+                                                nome: 'caricata' }]);
+        }
+        statoUpload('');
         disegnaIcone();
         document.getElementById('role-creator').style.display = 'flex';
     });
@@ -1216,6 +1229,69 @@
             cont.appendChild(b);
         });
     }
+
+    /* Il file viene caricato subito, non al salvataggio: cosi' l'esito
+       si vede mentre il pannello e' ancora aperto, e se lo Storage
+       rifiuta si puo' scegliere un'altra icona senza ricominciare.
+       Serve pero' che il ruolo esista gia'. */
+    function scegliFile() {
+        if (!pendingModifica) {
+            statoUpload('Prima crea il ruolo, poi con /changerole '
+                        + pendingRoleName + ' carichi l\'immagine.', 'ko');
+            return;
+        }
+        document.getElementById('role-file').click();
+    }
+
+    function statoUpload(testo, classe) {
+        const e = document.getElementById('role-upload-stato');
+        e.textContent = testo || '';
+        e.className = 'role-upload-stato' + (classe ? ' ' + classe : '');
+    }
+
+    document.getElementById('role-file').addEventListener('change', function () {
+        const file = this.files[0];
+        this.value = '';                 // ripeterlo con lo stesso file
+        if (!file) return;
+
+        /* Gli stessi limiti del server. Qui servono solo a dare
+           l'errore subito invece che dopo aver spedito il file. */
+        if (file.size > 256 * 1024) {
+            statoUpload('Troppo grande: ' + Math.round(file.size / 1024)
+                        + ' KB, massimo 256 KB.', 'ko');
+            return;
+        }
+        statoUpload('Carico...', '');
+
+        const lettore = new FileReader();
+        lettore.onerror = function () { statoUpload('File illeggibile.', 'ko'); };
+        lettore.onload = function () {
+            fetch('/api/role-icon/' + code, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ role: pendingRoleName,
+                                       data: lettore.result })
+            })
+            .then(function (r) { return r.json().then(function (j) {
+                return { ok: r.ok, j: j }; }); })
+            .then(function (res) {
+                if (!res.ok) { statoUpload(res.j.error || 'Errore.', 'ko'); return; }
+                /* L'icona e' gia' salvata sul ruolo: la aggiungo alla
+                   griglia e la seleziono, cosi' il pannello mostra la
+                   situazione vera anche se poi si annulla. */
+                iconeScelta = res.j.url;
+                iconeElenco = iconeElenco.filter(function (i) {
+                    return !(i.file || '').startsWith('http');
+                });
+                iconeElenco.push({ file: res.j.url, url: res.j.url,
+                                   nome: 'caricata' });
+                disegnaIcone();
+                statoUpload('Caricata.', 'ok');
+            })
+            .catch(function () { statoUpload('Rete non disponibile.', 'ko'); });
+        };
+        lettore.readAsDataURL(file);
+    });
 
     function confirmRole() {
         if (!pendingRoleName) return;

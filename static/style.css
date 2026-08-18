@@ -454,6 +454,25 @@ a { color: var(--accent); text-underline-offset: 3px; }
 .role-icona:hover { filter: none; color: var(--text); }
 .role-icona.scelta:hover { color: var(--accent); }
 
+.role-upload {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: -6px 0 14px;
+}
+
+.role-upload .btn-link { margin: 0; }
+
+.role-upload-stato {
+    min-width: 0;
+    color: var(--muted);
+    font-family: var(--font-mono);
+    font-size: 0.68rem;
+}
+
+.role-upload-stato.ko { color: var(--danger); }
+.role-upload-stato.ok { color: var(--ok); }
+
 .role-icone-vuoto {
     margin: -8px 0 14px;
     color: var(--muted);

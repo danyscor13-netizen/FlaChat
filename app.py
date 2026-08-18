@@ -16,10 +16,13 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 
+import base64
 import os
 import random
 import string
 import time
+import urllib.error
+import urllib.request
 
 import psycopg
 from psycopg.rows import dict_row
@@ -173,7 +176,8 @@ def url_icona(nome_ruolo, icon=None):
     """
     L'icona di un ruolo.
 
-      icon valorizzata      -> quel file (scelto a mano)
+      icon = 'https://...'  -> immagine caricata su Supabase Storage
+      icon = 'capo.svg'     -> quel file di static/icons/
       icon = stringa vuota  -> nessuna icona, scelta esplicita
       icon = NULL           -> il file che si chiama come il ruolo, se c'e'
 
@@ -181,13 +185,103 @@ def url_icona(nome_ruolo, icon=None):
     scegliere: continuano a mostrare owner/admin/mod senza migrazioni.
     """
     if icon:
+        if icon.startswith("http"):
+            return icon
         return f"/static/icons/{icon}"
     if icon == "":
         return ""
     return mappa_icone().get((nome_ruolo or "").lower(), "")
 
 
+# ---------------------------------------------------------
+# UPLOAD SU SUPABASE STORAGE
+# ---------------------------------------------------------
+# Il file viene caricato dal server, non dal browser. Le policy dello
+# Storage sono severe di proposito: dal browser servirebbe una policy
+# che permette la scrittura a chiunque sia loggato su Supabase — ma i
+# nostri utenti non lo sono, la sessione e' di Flask. Passando dal
+# server usiamo la service key, che sta solo qui e non arriva mai al
+# client, e il bucket puo' restare chiuso in scrittura.
+#
+# Il controllo su chi puo' caricare lo facciamo noi (permesso
+# MANAGE_ROLES + posizione del ruolo), che e' l'unico posto dove
+# sappiamo cosa significhi "ruolo pari o superiore al tuo".
+
+SUPABASE_URL = (os.environ.get("SUPABASE_URL") or "").rstrip("/")
+SUPABASE_SERVICE_KEY = os.environ.get("SUPABASE_SERVICE_KEY", "")
+SUPABASE_BUCKET = os.environ.get("SUPABASE_BUCKET", "role-icons")
+
+# Tenuti stretti: un'icona sta accanto a un nome, non serve altro.
+MAX_ICONA = 256 * 1024
+MIME_ICONA = {
+    "image/png": ".png",
+    "image/webp": ".webp",
+    "image/gif": ".gif",
+    "image/jpeg": ".jpg",
+    "image/svg+xml": ".svg",
+}
+
+
+def storage_attivo():
+    return bool(SUPABASE_URL and SUPABASE_SERVICE_KEY)
+
+
+def carica_su_storage(percorso, blob, mime):
+    """
+    Carica (o sostituisce) un oggetto. Torna (url, None) oppure
+    (None, messaggio_errore).
+
+    Gli errori dello Storage vengono riportati come sono: quando una
+    policy blocca la scrittura il corpo della risposta dice quale, ed
+    e' l'unica cosa che permette di capirci qualcosa.
+    """
+    url = f"{SUPABASE_URL}/storage/v1/object/{SUPABASE_BUCKET}/{percorso}"
+    req = urllib.request.Request(url, data=blob, method="POST")
+
+    # Le chiavi nuove (sb_secret_...) NON sono JWT e Supabase le rifiuta
+    # nell'header Authorization. Vanno in 'apikey'. Le vecchie
+    # (service_role, che comincia per 'ey' perche' e' un JWT) funzionano
+    # in entrambi, ma le mettiamo comunque in tutti e due per non dover
+    # distinguere piu' del necessario.
+    req.add_header("apikey", SUPABASE_SERVICE_KEY)
+    if SUPABASE_SERVICE_KEY.startswith("ey"):
+        req.add_header("Authorization", f"Bearer {SUPABASE_SERVICE_KEY}")
+
+    req.add_header("Content-Type", mime)
+    req.add_header("x-upsert", "true")     # ricaricare sostituisce
+    req.add_header("Cache-Control", "3600")
+    try:
+        urllib.request.urlopen(req, timeout=15).read()
+    except urllib.error.HTTPError as e:
+        corpo = e.read().decode("utf-8", "replace")[:300]
+        if e.code in (400, 404) and "Bucket not found" in corpo:
+            return None, (f"Il bucket '{SUPABASE_BUCKET}' non esiste. "
+                          "Crealo su Supabase (Storage > New bucket) "
+                          "e mettilo pubblico in lettura.")
+        if e.code in (401, 403):
+            return None, ("Lo Storage ha rifiutato la scrittura: la chiave "
+                          "deve essere quella segreta (sb_secret_... oppure "
+                          "la vecchia service_role), non la publishable o "
+                          f"anon. ({corpo})")
+        return None, f"Storage: errore {e.code}. {corpo}"
+    except Exception as e:
+        return None, f"Storage irraggiungibile: {e}"
+
+    return (f"{SUPABASE_URL}/storage/v1/object/public/"
+            f"{SUPABASE_BUCKET}/{percorso}"), None
+
+
 ICONE = mappa_icone()
+
+# Diagnostica all'avvio. La causa piu' banale di "l'icona non compare"
+# e' che la cartella non e' stata copiata nel deploy: senza questa riga
+# non c'e' modo di accorgersene, perche' l'app funziona lo stesso e
+# semplicemente non disegna niente.
+if ICONE:
+    print(f"Icone dei ruoli trovate in static/icons/: {', '.join(sorted(ICONE))}")
+else:
+    print("Nessuna icona in static/icons/ (cartella vuota o non copiata "
+          "nel deploy): i ruoli non mostreranno nessuna icona.")
 
 # La colonna roles.icon arriva con migrazione_icone.sql. Se non e' ancora
 # stata eseguita l'app deve continuare a funzionare: senza questo
@@ -573,6 +667,95 @@ def api_messages(channel_id):
 # ---------------------------------------------------------
 # API: menzioni e notifiche
 # ---------------------------------------------------------
+
+@app.route("/api/role-icon/<code>", methods=["POST"])
+def api_role_icon(code):
+    """
+    Carica un'immagine e la assegna come icona di un ruolo.
+
+    Il browser manda il file gia' letto come data URL. Tutti i controlli
+    stanno qui: sul client servono solo a dare un errore veloce, non
+    fanno testo.
+    """
+    uid = session.get("user_id")
+    if not uid:
+        return jsonify(error="Sessione scaduta."), 401
+    if not storage_attivo():
+        return jsonify(error="Storage non configurato: mancano SUPABASE_URL "
+                             "e SUPABASE_SERVICE_KEY."), 503
+
+    dati = request.get_json(silent=True) or {}
+    nome_ruolo = (dati.get("role") or "").strip().lower()[:32]
+    data_url = dati.get("data") or ""
+
+    with get_db() as db:
+        sp = uno(db, "SELECT id FROM spaces WHERE code=%s", (str(code),))
+        if not sp:
+            return jsonify(error="Stanza non trovata."), 404
+        space_id = sp["id"]
+
+        if not puo(db, uid, space_id, MANAGE_ROLES):
+            return jsonify(error="Non hai i permessi."), 403
+
+        r = uno(db, "SELECT * FROM roles WHERE space_id=%s AND name=%s",
+                (space_id, nome_ruolo))
+        if not r:
+            return jsonify(error="Ruolo non trovato."), 404
+        if r["position"] >= posizione(db, uid, space_id):
+            return jsonify(error="Non puoi modificare un ruolo pari o "
+                                 "superiore al tuo."), 403
+
+        # --- il file
+        if not data_url.startswith("data:"):
+            return jsonify(error="Immagine non valida."), 400
+        try:
+            testa, b64 = data_url.split(",", 1)
+            mime = testa[5:].split(";")[0].strip().lower()
+            blob = base64.b64decode(b64, validate=True)
+        except Exception:
+            return jsonify(error="Immagine illeggibile."), 400
+
+        if mime not in MIME_ICONA:
+            return jsonify(error="Formato non ammesso. Usa PNG, WEBP, GIF, "
+                                 "JPG o SVG."), 400
+        if not blob:
+            return jsonify(error="File vuoto."), 400
+        if len(blob) > MAX_ICONA:
+            return jsonify(error=f"Immagine troppo grande "
+                                 f"({len(blob)//1024} KB, massimo "
+                                 f"{MAX_ICONA//1024} KB)."), 400
+
+        # Un SVG e' un documento, non solo un'immagine: se contiene
+        # script e qualcuno lo apre per URL diretto, quello script gira
+        # sul dominio dello Storage. Nei nostri <img> non verrebbe
+        # eseguito, ma non e' un buon motivo per accettarlo.
+        if mime == "image/svg+xml":
+            testo = blob.decode("utf-8", "replace").lower()
+            if "<script" in testo or "javascript:" in testo or "onload=" in testo:
+                return jsonify(error="SVG con script: rifiutato."), 400
+
+        # Il percorso lo decidiamo noi, non il client: niente nomi che
+        # arrivano da fuori dentro un path.
+        percorso = f"{space_id}/{r['id']}{MIME_ICONA[mime]}"
+        url, errore = carica_su_storage(percorso, blob, mime)
+        if errore:
+            return jsonify(error=errore), 502
+
+        # ?v= cambia a ogni caricamento: senza, il browser continuerebbe
+        # a mostrare la vecchia immagine allo stesso URL
+        url = f"{url}?v={int(time.time())}"
+
+        if HA_COLONNA_ICON:
+            db.execute("UPDATE roles SET icon=%s WHERE id=%s", (url, r["id"]))
+            db.commit()
+        else:
+            return jsonify(error="Manca la colonna roles.icon: esegui "
+                                 "migrazione_icone.sql."), 503
+
+        manda_utenti(space_id)
+
+    return jsonify(ok=True, url=url)
+
 
 @app.route("/api/mentionables/<code>")
 def api_mentionables(code):
@@ -1570,7 +1753,8 @@ def on_create_role(data):
 
     # None = decidi tu (file omonimo), "" = nessuna icona, "x.svg" = quella
     icona = data.get("icon")
-    if icona is not None:
+    if icona is not None and not (icona or "").startswith(f"{SUPABASE_URL}/"):
+        # un nome di file arriva dal client: vale solo se esiste davvero
         validi = {i["file"] for i in icone_disponibili()}
         icona = icona if icona in validi else ""
 

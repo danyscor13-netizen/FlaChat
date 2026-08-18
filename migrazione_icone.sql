@@ -16,3 +16,9 @@
 
 ALTER TABLE roles
     ADD COLUMN IF NOT EXISTS icon TEXT;
+
+-- roles.icon puo' contenere tre cose:
+--   NULL          -> il file in static/icons/ che si chiama come il ruolo
+--   ''            -> nessuna icona
+--   'capo.svg'    -> un file di static/icons/
+--   'https://...' -> un'immagine caricata su Supabase Storage

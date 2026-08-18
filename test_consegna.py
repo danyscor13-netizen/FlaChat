@@ -8,6 +8,7 @@ conferma, e il client sa quando rifare il join.
 
     python test_consegna.py
 """
+import base64
 import os
 
 os.environ.setdefault(
@@ -259,6 +260,115 @@ def main():
     mio = [d for d in eco if d.get("tmp") == "t6"]
     check("il messaggio porta l'url dell'icona del ruolo",
           mio and mio[0].get("icon") == "/static/icons/mod.svg")
+
+    print("\nUPLOAD ICONA (SUPABASE STORAGE)")
+
+    # Storage finto: qui non si raggiunge Supabase, e comunque i test
+    # devono verificare le nostre regole, non le loro.
+    caricati = []
+
+    def finto_storage(percorso, blob, mime):
+        caricati.append((percorso, len(blob), mime))
+        return f"https://finto.supabase.co/storage/v1/object/public/role-icons/{percorso}", None
+
+    A.SUPABASE_URL = "https://finto.supabase.co"
+    A.SUPABASE_SERVICE_KEY = "service-key-finta"
+    vero_carica = A.carica_su_storage
+    A.carica_su_storage = finto_storage
+
+    png = ("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfF"
+           "cSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==")
+
+    r = c1.post(f"/api/role-icon/{code}",
+                json={"role": "capo", "data": png})
+    check("l'upload va a buon fine", r.status_code == 200)
+    url = r.get_json().get("url", "")
+    check("torna l'url pubblico dello Storage",
+          url.startswith("https://finto.supabase.co/storage/v1/object/public/"))
+    check("con ?v= per bucare la cache del browser", "?v=" in url)
+    # il percorso e' costruito dal server: <space_id>/<role_id>.png.
+    # Niente che arrivi dal client ci finisce dentro.
+    with A.get_db() as db:
+        rid = A.uno(db, "SELECT id FROM roles WHERE space_id=%s AND name='capo'",
+                    (sp_id,))["id"]
+    check("il percorso lo decide il server, non il client",
+          caricati and caricati[0][0] == f"{sp_id}/{rid}.png")
+    check("l'estensione segue il tipo dichiarato",
+          caricati and caricati[0][2] == "image/png")
+
+    with A.get_db() as db:
+        rr = A.uno(db, "SELECT icon FROM roles WHERE space_id=%s AND name='capo'",
+                   (sp_id,))
+    check("l'url finisce sul ruolo", rr["icon"] == url)
+    check("e url_icona lo restituisce cosi' com'e'",
+          A.url_icona("capo", url) == url)
+
+    # --- cosa NON deve passare
+    r = c1.post(f"/api/role-icon/{code}",
+                json={"role": "capo", "data": "data:application/pdf;base64,AAAA"})
+    check("formato non ammesso: rifiutato", r.status_code == 400)
+
+    grosso = "data:image/png;base64," + base64.b64encode(b"x" * 300000).decode()
+    r = c1.post(f"/api/role-icon/{code}", json={"role": "capo", "data": grosso})
+    check("immagine oltre 256 KB: rifiutata", r.status_code == 400)
+
+    svg = ("data:image/svg+xml;base64,"
+           + base64.b64encode(b'<svg xmlns="http://www.w3.org/2000/svg">'
+                              b'<script>alert(1)</script></svg>').decode())
+    r = c1.post(f"/api/role-icon/{code}", json={"role": "capo", "data": svg})
+    check("SVG con script: rifiutato", r.status_code == 400)
+
+    r = c2.post(f"/api/role-icon/{code}", json={"role": "capo", "data": png})
+    check("chi non ha MANAGE_ROLES non carica", r.status_code == 403)
+
+    r = c1.post(f"/api/role-icon/{code}", json={"role": "owner", "data": png})
+    check("non si carica su un ruolo pari o superiore al proprio",
+          r.status_code == 403)
+
+    A.SUPABASE_SERVICE_KEY = ""
+    r = c1.post(f"/api/role-icon/{code}", json={"role": "capo", "data": png})
+    check("senza configurazione lo dice invece di rompersi",
+          r.status_code == 503 and "SUPABASE" in r.get_json()["error"])
+    A.SUPABASE_SERVICE_KEY = "service-key-finta"
+    A.carica_su_storage = vero_carica
+
+    # Le chiavi nuove (sb_secret_...) non sono JWT: Supabase le rifiuta
+    # nell'header Authorization e vanno passate in 'apikey'. I progetti
+    # creati da fine 2025 hanno solo queste.
+    import http.server
+    import threading
+
+    visti = {}
+
+    class H(http.server.BaseHTTPRequestHandler):
+        def do_POST(self):
+            visti.clear()
+            visti.update({k.lower(): v for k, v in self.headers.items()})
+            self.send_response(200)
+            self.end_headers()
+            self.wfile.write(b"{}")
+
+        def log_message(self, *a):
+            pass
+
+    srv = http.server.HTTPServer(("127.0.0.1", 5112), H)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    A.SUPABASE_URL = "http://127.0.0.1:5112"
+
+    A.SUPABASE_SERVICE_KEY = "sb_secret_finta"
+    A.carica_su_storage("1/2.png", b"\x89PNG", "image/png")
+    check("chiave nuova: va in 'apikey'",
+          visti.get("apikey") == "sb_secret_finta")
+    check("chiave nuova: niente Authorization, la rifiuterebbe",
+          "authorization" not in visti)
+
+    A.SUPABASE_SERVICE_KEY = "eyJhbGciOiJIUzI1NiJ9.finta.jwt"
+    A.carica_su_storage("1/2.png", b"\x89PNG", "image/png")
+    check("chiave vecchia (JWT): anche in Authorization",
+          visti.get("authorization", "").startswith("Bearer ey"))
+    check("l'upsert e' sempre attivo: ricaricare sostituisce",
+          visti.get("x-upsert") == "true")
+    srv.shutdown()
 
     print("\nSENZA LA MIGRAZIONE")
 

@@ -1,1 +1,7 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="#e04b4b"><!-- segnaposto: sostituisci con l'icona vera --><path d="M12 2l8 3.2v6.1c0 4.9-3.3 9.1-8 10.7-4.7-1.6-8-5.8-8-10.7V5.2z"/></svg>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" role="img" aria-label="admin">
+  <!-- Scudo pieno con saetta: puo' intervenire su tutto. -->
+  <path fill="#e04b4b"
+        d="M12 2.2 20 5.3v6.2c0 4.9-3.3 9.2-8 10.8-4.7-1.6-8-5.9-8-10.8V5.3Z"/>
+  <path fill="#1a1626" opacity=".85"
+        d="M12.9 7.1 8.8 13h2.6l-.9 4.3 4.3-6.2h-2.7Z"/>
+</svg>

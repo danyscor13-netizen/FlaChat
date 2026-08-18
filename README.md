@@ -21,7 +21,7 @@ persistente. Flask + Socket.IO + Postgres.
 | `migrazione_icone.sql` | colonna `roles.icon` per l'icona scelta a mano |
 | `test_retention.py` | 19 test sulla scadenza |
 | `test_perms.py` | 28 test sui permessi |
-| `test_consegna.py` | 43 test su consegna, riconnessione, ruoli/icone e pooler |
+| `test_consegna.py` | 60 test su consegna, riconnessione, ruoli/icone, upload e pooler |
 | `check_js.py` | verifica la sintassi del JS nei template |
 | `render.yaml` | configurazione dell'hosting |
 | `DEPLOY.md` | istruzioni per il deploy su Render |
@@ -285,3 +285,76 @@ micro-ottimizzazione che con questo pooler non funzionerebbe comunque.
 
 Se un giorno passi alla connessione diretta (porta 5432, session mode)
 puoi rimettere il default e riguadagnarla.
+
+
+## Icona caricata (Supabase Storage)
+
+Oltre ai file di `static/icons/`, dal pannello `/changerole` si puo'
+caricare un'immagine qualsiasi. `roles.icon` in quel caso contiene
+l'URL pubblico completo, e `url_icona()` lo restituisce cosi' com'e'.
+
+### Configurazione
+
+Su Supabase: **Storage > New bucket**, nome `role-icons`, spuntato
+**Public bucket** (serve la lettura pubblica: le icone finiscono in
+`<img>` di gente non loggata su Supabase).
+
+Poi tre variabili d'ambiente su Render:
+
+| variabile | dove si trova |
+|---|---|
+| `SUPABASE_URL` | Project Settings > API > Project URL |
+| `SUPABASE_SERVICE_KEY` | Project Settings > API Keys > **Secret keys** (`sb_secret_...`) |
+| `SUPABASE_BUCKET` | opzionale, default `role-icons` |
+
+Se mancano, l'upload risponde 503 con scritto cosa manca e il resto
+dell'app funziona come prima.
+
+### Perche' l'upload passa dal server
+
+Le policy dello Storage sono severe di proposito, e va bene cosi': il
+modo di aggirarle non e' allentarle. Caricando dal browser servirebbe
+una policy che permette la scrittura a chiunque sia autenticato su
+Supabase — ma i nostri utenti non lo sono mai, la sessione e' di
+Flask. Passando dal server si usa la `service_role` key, che resta
+nelle variabili d'ambiente e non arriva mai al client, e il bucket
+puo' restare **chiuso in scrittura**.
+
+Il controllo su chi puo' caricare lo facciamo noi, ed e' l'unico posto
+dove ha senso: solo qui si sa cosa significhi "ruolo di posizione pari
+o superiore alla tua".
+
+### Quale chiave
+
+Supabase ha cambiato sistema: le vecchie `anon` / `service_role` sono
+ora "legacy" e i progetti creati da fine 2025 **non le hanno proprio**.
+Al loro posto ci sono `sb_publishable_...` (pubblica) e
+`sb_secret_...` (segreta). A noi serve quella segreta.
+
+Sta in **Project Settings > API Keys > Secret keys**. Se il progetto
+e' vecchio e usi ancora `service_role`, funziona lo stesso: il codice
+riconosce entrambe.
+
+La differenza non e' solo il nome. Le chiavi nuove non sono JWT e
+Supabase **le rifiuta nell'header `Authorization`**: vanno passate in
+`apikey`. Il codice manda `apikey` sempre e aggiunge `Authorization`
+solo quando la chiave e' un JWT (comincia per `ey`).
+
+**La chiave segreta bypassa tutte le policy.** Va solo nelle
+variabili d'ambiente di Render: mai nel repo, mai nei template, mai in
+una risposta JSON.
+
+### Cosa viene rifiutato
+
+- oltre 256 KB (un'icona sta accanto a un nome, non serve altro)
+- tipi diversi da PNG, WEBP, GIF, JPG, SVG
+- SVG che contengono `<script>`, `javascript:` o `onload=`: un SVG e'
+  un documento, non solo un'immagine. Nei nostri `<img>` non
+  verrebbe eseguito, ma non e' un buon motivo per accettarlo
+- ruoli di posizione pari o superiore alla propria
+
+Il percorso dell'oggetto e' costruito dal server
+(`<space_id>/<role_id>.<est>`): niente che arrivi dal client finisce
+dentro un path. Ricaricare sostituisce l'immagine precedente
+(`x-upsert`), e l'URL salvato porta un `?v=` che cambia ogni volta,
+altrimenti il browser continuerebbe a mostrare la vecchia.
