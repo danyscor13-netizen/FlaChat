@@ -30,6 +30,8 @@ from psycopg.rows import dict_row
 import menzioni
 from psycopg_pool import ConnectionPool
 
+import shlex # Ci serve
+
 app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY", "cambia-questa-chiave")
 socketio = SocketIO(app)
@@ -1453,7 +1455,10 @@ def notifica_push(db, space_id, channel_id, autore_id, testo,
 # ---------------------------------------------------------
 
 def comando(uid, sid, space_id, msg):
-    parti = msg.split(" ", 2)
+    try:
+        parti = shlex.split(msg)
+    except ValueError:
+        return sistema("Virgolette non chiuse.", sid=sid)
     cmd = parti[0].lower()
 
     with get_db() as db:
@@ -1546,6 +1551,113 @@ def comando(uid, sid, space_id, msg):
             # commit prima di trasmettere: manda_canali/manda_utenti
             # usano un'altra connessione del pool e non vedrebbero
             # le scritture ancora aperte in questa transazione
+            db.commit()
+            manda_utenti(space_id)
+            return manda_canali(space_id)
+
+        if cmd == "/addrole":
+            if not puo(db, uid, space_id, MANAGE_ROLES):
+                return sistema("Non hai i permessi per assegnare ruoli.", sid=sid)
+            if len(parti) < 3:
+                return sistema("Uso: /addrole <utente> <ruolo>",sid=sid)
+
+            target = uno(db, """SELECT u.id, u.username FROM users u
+                                JOIN members m ON m.user_id=u.id
+                                WHERE m.space_id=%s AND lower(u.username)=%s""",
+                         (space_id, parti[1].strip().lower()))
+
+            if not target:
+                return sistema("L'utente non è presente nella stanza.", sid=sid)
+
+            ruolo = uno(db, "SELECT * FROM roles WHERE space_id=%s AND name=%s",
+                        (space_id, parti[2].strip().lower()))
+
+            if not ruolo:
+                return sistema("Il ruolo non esiste nella stanza.", sid=sid)
+
+            if not puo_agire_su(db, uid, target["id"], space_id):
+                return sistema("Non puoi modificare qualcuno pari o superiore di livello.", sid=sid)
+
+            if ruolo["position"] >= posizione(db, uid, space_id):
+                return sistema("Non puoi assegnare un ruolo pari o superiore al tuo.", sid=sid)
+
+            gia = uno(db, """SELECT 1 FROM member_roles
+                             WHERE space_id=%s AND user_id=%s AND role_id=%s""",
+                      (space_id, target["id"], ruolo["id"]))
+            if gia:
+                return sistema(f"{target['username']} ha già il ruolo "
+                               f"{ruolo['name']}.", sid=sid)
+
+            db.execute("""INSERT INTO member_roles (space_id, user_id, role_id)
+                          VALUES (%s, %s, %s)""",
+                       (space_id, target["id"], ruolo["id"]))
+
+            silenzioso = "silent" in [p.lower() for p in parti[3:]]
+            testo = f"{target['username']} ha anche il ruolo {ruolo['name']}."
+            if silenzioso:
+                sistema(testo + " (silent)", sid=sid)
+            else:
+                sistema(testo, space_id=space_id)
+
+            db.commit()
+            manda_utenti(space_id)
+            return manda_canali(space_id)
+
+        if cmd == "/removerole":
+            if not puo(db, uid, space_id, MANAGE_ROLES):
+                return sistema("Non hai i permessi per assegnare ruoli.", sid=sid)
+            if len(parti) < 3:
+                return sistema("Uso: /removerole <utente> <ruolo>", sid=sid)
+
+            target = uno(db, """SELECT u.id, u.username FROM users u
+                                JOIN members m ON m.user_id=u.id
+                                WHERE m.space_id=%s AND lower(u.username)=%s""",
+                         (space_id, parti[1].strip().lower()))
+
+            if not target:
+                return sistema("L'utente non è presente nella stanza.", sid=sid)
+
+            ruolo = uno(db, "SELECT * FROM roles WHERE space_id=%s AND name=%s",
+                        (space_id, parti[2].strip().lower()))
+
+            if not ruolo:
+                return sistema("Il ruolo non esiste nella stanza.", sid=sid)
+
+            if not puo_agire_su(db, uid, target["id"], space_id):
+                return sistema("Non puoi modificare qualcuno pari o superiore di livello.", sid=sid)
+
+            if ruolo["position"] >= posizione(db, uid, space_id):
+                return sistema("Non puoi togliere un ruolo pari o superiore al tuo.", sid=sid)
+
+            gia = uno(db, """SELECT 1 FROM member_roles
+                             WHERE space_id=%s AND user_id=%s AND role_id=%s""",
+                      (space_id, target["id"], ruolo["id"]))
+            if not gia:
+                return sistema(f"{target['username']} non ha il ruolo "
+                               f"{ruolo['name']}.", sid=sid)
+
+            # Senza questo si può lasciare qualcuno a zero ruoli: da lì
+            # posizione() torna -1 e permessi() torna 0, quindi non può
+            # più nemmeno scrivere e non se ne accorge nessuno.
+            n = uno(db, """SELECT COUNT(*) AS n FROM member_roles
+                           WHERE space_id=%s AND user_id=%s""",
+                    (space_id, target["id"]))["n"]
+            if n <= 1:
+                return sistema(f"{ruolo['name']} è l'unico ruolo di "
+                               f"{target['username']}. Prima assegnagliene "
+                               "un altro.", sid=sid)
+
+            db.execute("""DELETE FROM member_roles
+                          WHERE space_id=%s AND user_id=%s AND role_id=%s""",
+                       (space_id, target["id"], ruolo["id"]))
+
+            silenzioso = "silent" in [p.lower() for p in parti[3:]]
+            testo = f"{target['username']} non ha più il ruolo {ruolo['name']}."
+            if silenzioso:
+                sistema(testo + " (silent)", sid=sid)
+            else:
+                sistema(testo, space_id=space_id)
+
             db.commit()
             manda_utenti(space_id)
             return manda_canali(space_id)
