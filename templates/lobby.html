@@ -22,6 +22,14 @@
         <span class="brand">FlaChat</span>
         <h2>Ciao, {{ username }}</h2>
 
+        {% if mostra_avviso %}
+        <div class="warn" id="avviso-email">
+            <h1>Tempo di verificare la tua e-mail!</h1>
+            <p>Per recuperare il tuo account, devi aggiungere la tua e-mail.</p>
+            <p><a href="/verify-email">Verifica la tua email qui!</a></p>
+        </div>
+        {% endif %}
+
         {% if error %}
         <div class="error">{{ error }}</div>
         {% endif %}

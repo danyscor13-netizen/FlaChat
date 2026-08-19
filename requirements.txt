@@ -18,3 +18,8 @@ gevent-websocket
 #   invalid or not found: ModuleNotFoundError: No module named 'packaging'
 # Finora arrivava di rimbalzo da qualche altro pacchetto, poi ha smesso.
 packaging
+
+# Mettiamo anche Resend API per la ver email
+# Sarà solo temporaneo, nulla di così speciale
+resend
+resend==2.37.0

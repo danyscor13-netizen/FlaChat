@@ -32,6 +32,10 @@ from psycopg_pool import ConnectionPool
 
 import shlex # Ci serve
 
+import resend # Verificazione e-mail
+# Non dovrai farci molto, ti servirà solo per verificare che tu sei il proprietario dell'account
+# E cambiare la tua password
+
 app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY", "cambia-questa-chiave")
 socketio = SocketIO(app)
@@ -589,9 +593,29 @@ def lobby():
             ORDER BY s.name
         """, (uid,))
 
-    return render_template("lobby.html", username=session.get("username"),
-                           stanze=stanze, error=error)
+        me = uno(db, """SELECT email, avviso_email_nascosto
+                        FROM users WHERE id=%s""", (uid,))
+        if not me:
+            session.clear()
+            return redirect(url_for("home"))
+        mostra_avviso = not me["email"] and not me["avviso_email_nascosto"]
 
+    return render_template("lobby.html", username=session.get("username"),
+                           stanze=stanze, error=error,
+                           mostra_avviso=mostra_avviso)
+
+
+# ---------------------------------------------------------
+# Resend: Verificazione e-mail
+# ---------------------------------------------------------
+
+@app.route("/verify-email")
+def vemail():
+    return render_template("ver-email.html")
+
+@app.route("/forgotpassword")
+def fpassword():
+    return render_template("resetpassword.html")
 
 @app.route("/chat/<code>")
 def chat(code):
@@ -1156,6 +1180,7 @@ def api_perms_override(code):
         manda_canali(sp["id"])
 
     return jsonify({"ok": True, "allow": allow, "deny": deny})
+
 
 
 # =========================================================
