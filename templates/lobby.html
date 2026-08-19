@@ -24,10 +24,23 @@
 
         {% if mostra_avviso %}
         <div class="warn" id="avviso-email">
-            <h1>Tempo di verificare la tua e-mail!</h1>
-            <p>Per recuperare il tuo account, devi aggiungere la tua e-mail.</p>
+            <h1>Hai un'email da aggiungere?</h1>
+            <p>Puoi aggiungere una e-mail per recuperare il tuo account nel caso ti dimenticassi la password<br>
+                <small>Ahi... che dimenticanza...</small>
+            </p>
+            <p><strong>Non è obbligatorio, ma te lo consigliamo.</strong></p>
             <p><a href="/verify-email">Verifica la tua email qui!</a></p>
+            <button onclick="document.getElementById('avviso-email').remove()">Chiudi</button>
+            <button class="btn-secondary" onclick="nnMostrarePiùStaMaledettaSchermataBro()">Non mostrare più</button>
         </div>
+        <script>
+            function nnMostrarePiùStaMaledettaSchermataBro() {
+                fetch('/api/avviso-email/nascondi', { method: 'POST' })
+                .finally(function () {
+                    document.getElementById('avviso-email').remove();
+                });
+            }
+        </script>
         {% endif %}
 
         {% if error %}

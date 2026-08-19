@@ -822,6 +822,16 @@ def chat(code):
     return render_template("chat.html", username=session["username"],
                            space_name=sp["name"], code=sp["code"])
 
+@app.route("/api/avviso-email/nascondi", methods=["POST"])
+def api_avviso_email():
+    uid = utente_corrente()
+    if not uid:
+        abort(401)
+    with get_db() as db:
+        db.execute("UPDATE users SET avviso_email_nascosto=true WHERE id=%s",
+                   (uid,))
+        db.commit()
+    return jsonify({"ok": True})
 
 @app.route("/api/messages/<int:channel_id>")
 def api_messages(channel_id):

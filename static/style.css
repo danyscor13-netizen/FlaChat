@@ -1142,3 +1142,21 @@ a { color: var(--accent); text-underline-offset: 3px; }
         gap: 4px;
     }
 }
+
+.small,
+.btn-secondary-small {
+    width: auto;
+    padding: 7px 12px;
+    font-size: 13px;
+}
+
+.btn-secondary-small {
+    background: var(--surface-2);
+    color: var(--text);
+    border: 1px solid var(--line);
+}
+
+.btn-secondary-small:hover {
+    border-color: var(--accent-2);
+    color: var(--accent-2);
+}
