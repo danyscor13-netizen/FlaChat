@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="it">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <title>FlaChat - Profilo di {{ username }}</title>
+        <link rel="stylesheet" href="/static/style.css">
+    </head>
+    <body>
+        <div class="container">
+            <small><a href="/lobby">Torna indietro</a></small>
+            <br><br>
+            <span class="brand">{{ username }}'s profile</span>
+            <p>{{ bio }}</p>
+
+            {% if can_mod %}
+            <form action="/profile" method="POST">
+                <input
+                    type="text"
+                    name="bio"
+                    placeholder="Ciao!"
+                    value="{{ bio }}"
+                    maxlength="500"
+                >
+                <button type="submit">Salva</button>
+            </form>
+            {% if doesUserHaveMail %}
+                <br>
+                <p>Hai una e-mail collegata al tuo account.</p>
+            {% else %}
+                <br>
+                <p>Non hai una email. <a href="/verify-email">Aggiungila qui!</a></p>
+            {% endif %}
+
+            {% endif %}
+        </div>
+    </body>
+</html>

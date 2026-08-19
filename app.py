@@ -608,6 +608,68 @@ def lobby():
                            stanze=stanze, error=error,
                            mostra_avviso=mostra_avviso)
 
+@app.route("/profile", methods=["GET", "POST"])
+def profile():
+    username = session.get("username")
+    can_mod = True
+
+    if not username:
+        return redirect("/login")
+
+    with get_db() as db:
+        if request.method == "POST":
+            bio = request.form.get("bio", "").strip()[:500]
+
+            db.execute(
+                "UPDATE users SET bio=%s WHERE username=%s",
+                (bio, username)
+            )
+            db.commit()
+
+        user = db.execute("""
+            SELECT username, bio
+            FROM users
+            WHERE username=%s
+        """, (username,)).fetchone()
+
+        def checkIfMail():
+            userMail = db.execute("""
+            select email 
+            from users 
+            where username = %s
+            """, (username,)).fetchone()
+
+            if not userMail:
+                return False
+            else:
+                return True
+
+        doesUserHaveMail = checkIfMail()
+
+    if not user:
+        return "Utente non trovato :(", 404
+
+    return render_template(
+        "profile.html",
+        username=user["username"],
+        bio=user["bio"],
+        can_mod=can_mod,
+        doesUserHaveMail=doesUserHaveMail
+    )
+
+@app.route("/profile/<username>")
+def pub_profile(username):
+    can_mod = False
+    with get_db() as db:
+        user = db.execute("select username, bio from users where username = %s", (username,)).fetchone()
+
+        if not user:
+            return "Utente non trovato :(", 404
+
+    return render_template("profile.html",
+                           username=user["username"],
+                           bio=user["bio"],
+                           can_mod=can_mod)
 
 # ---------------------------------------------------------
 # Resend: Verificazione e-mail

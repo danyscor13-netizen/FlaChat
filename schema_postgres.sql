@@ -55,7 +55,8 @@ CREATE TABLE IF NOT EXISTS users (
     username     TEXT UNIQUE NOT NULL,
     password     TEXT NOT NULL,
     display_name TEXT,
-    created_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+    created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+    bio          TEXT DEFAULT 'Questo utente non ha una bio ancora :\'
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_users_username_lower
