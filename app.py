@@ -36,6 +36,10 @@ import resend # Verificazione e-mail
 # Non dovrai farci molto, ti servirà solo per verificare che tu sei il proprietario dell'account
 # E cambiare la tua password
 
+# Sempre verificazione
+import hashlib
+import secrets
+
 app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY", "cambia-questa-chiave")
 socketio = SocketIO(app)
@@ -609,9 +613,193 @@ def lobby():
 # Resend: Verificazione e-mail
 # ---------------------------------------------------------
 
-@app.route("/verify-email")
+@app.route("/verify-email", methods=["GET", "POST"])
 def vemail():
-    return render_template("ver-email.html")
+    uid = utente_corrente()
+    if not uid:
+        return redirect(url_for("login"))
+
+    if request.method == "POST":
+        mail = request.form.get("email", "").strip().lower()[:200]
+
+        if not mail:
+            return redirect(url_for("vemail"))
+
+        with get_db() as db:
+            db.execute("""update users set email=%s, is_email_verified=false
+                where id=%s""", (mail, uid))
+
+            token = secrets.token_urlsafe(32)
+
+            db.execute("""
+                DELETE FROM verify_tokens
+                WHERE user_id=%s
+            """, (uid,))
+
+            db.execute("""insert into verify_tokens
+                        (user_id, email, token_hash, expires_at)
+                        values (%s, %s, %s, %s)""",
+                        (uid, mail,
+                         hashlib.sha256(token.encode()).hexdigest(),
+                         ora() + timedelta(minutes=15)))
+            db.commit()
+
+        link = f"{request.url_root.rstrip('/')}/verify-email/{token}"
+        resend.api_key = os.environ.get("RESEND_API_KEY")
+        resend.Emails.send({
+            "from": "FlaChat <onboarding@resend.dev>",
+            "to": [mail],
+            "subject": "FlaChat - Conferma la tua e-mail",
+            "html": f"""
+                <style>
+                    @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=JetBrains+Mono:wght@400;700&display=swap');
+                </style>
+
+                <div style="
+                    margin: 0;
+                    padding: 40px 20px;
+                    background: #15121f;
+                    color: #efecf7;
+                    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+                ">
+
+                    <div style="
+                        max-width: 520px;
+                        margin: auto;
+                        padding: 32px;
+                        background: #1c1829;
+                        border: 1px solid #332b49;
+                        border-radius: 4px;
+                        box-shadow: 0 8px 30px rgba(0, 0, 0, 0.25);
+                    ">
+
+                        <!-- Branding -->
+                        <div style="
+                            margin-bottom: 24px;
+                            font-family: 'JetBrains Mono', 'Courier New', monospace;
+                            font-size: 17px;
+                            font-weight: 700;
+                            letter-spacing: -0.02em;
+                            color: #f2c14e;
+                        ">
+                            FlaChat
+                        </div>
+
+                        <!-- Title -->
+                        <h1 style="
+                            margin: 0 0 12px;
+                            font-family: 'Space Grotesk', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+                            font-size: 26px;
+                            line-height: 1.2;
+                            font-weight: 700;
+                            color: #efecf7;
+                        ">
+                            Conferma la tua e-mail
+                        </h1>
+
+                        <!-- Main text -->
+                        <p style="
+                            margin: 0 0 24px;
+                            color: #958dab;
+                            font-size: 15px;
+                            line-height: 1.65;
+                        ">
+                            Hai aggiunto l'indirizzo e-mail al tuo account.
+                            Verificalo per confermare che sia realmente tuo.
+                        </p>
+
+                        <!-- Additional information -->
+                        <div style="
+                            margin: 0 0 24px;
+                            padding: 14px 16px;
+                            background: #251f36;
+                            border-left: 3px solid #b98cff;
+                            border-radius: 4px;
+                        ">
+                            <p style="
+                                margin: 0;
+                                color: #958dab;
+                                font-size: 13px;
+                                line-height: 1.6;
+                            ">
+                                L'e-mail ti servirà per recuperare il tuo account,
+                                per esempio, se ti sei dimenticato la password.
+                            </p>
+
+                            <p style="
+                                margin: 10px 0 0;
+                                color: #efecf7;
+                                font-size: 13px;
+                                line-height: 1.6;
+                            ">
+                                Non vorrai mica perdere accesso al tuo account...
+                            </p>
+                        </div>
+
+                        <!-- Verification button -->
+                        <a href="{link}" style="
+                            display: inline-block;
+                            padding: 12px 22px;
+                            background: #f2c14e;
+                            color: #1a1626;
+                            border-radius: 4px;
+                            text-decoration: none;
+                            font-family: 'Space Grotesk', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+                            font-size: 15px;
+                            font-weight: 700;
+                        ">
+                            Conferma e-mail
+                        </a>
+
+                        <!-- Expiration -->
+                        <div style="
+                            margin-top: 14px;
+                            color: #958dab;
+                            font-family: 'JetBrains Mono', 'Courier New', monospace;
+                            font-size: 11px;
+                        ">
+                            ⏱ Il link scade tra 15 minuti.
+                        </div>
+
+                        <!-- Divider -->
+                        <div style="
+                            height: 1px;
+                            margin: 28px 0 20px;
+                            background: #332b49;
+                        "></div>
+
+                        <!-- Security notice -->
+                        <p style="
+                            margin: 0;
+                            color: #958dab;
+                            font-size: 12px;
+                            line-height: 1.6;
+                        ">
+                            Se non hai aggiunto nessuna e-mail,
+                            puoi tranquillamente ignorare questa e-mail.
+                        </p>
+
+                        <!-- Signature -->
+                        <div style="
+                            margin-top: 22px;
+                            padding-top: 16px;
+                            border-top: 1px solid #332b49;
+                        ">
+                            <p style="
+                                margin: 0;
+                                font-family: 'JetBrains Mono', 'Courier New', monospace;
+                                font-size: 12px;
+                                font-weight: 700;
+                                color: #f2c14e;
+                            ">
+                                D.P. - FlaChat
+                            </p>
+                        </div>
+
+                    </div>
+                </div>
+            """
+        })
 
 @app.route("/forgotpassword")
 def fpassword():

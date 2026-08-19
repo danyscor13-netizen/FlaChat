@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html land="it">
+<html lang="it">
     <head>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -7,4 +7,19 @@
         <link rel="icon" href="/static/favicon.png">
         <link rel="stylesheet" href="/static/style.css">
     </head>
+    <body>
+        <div class="container">
+            <span class="brand">FlaChat</span>
+            <h1>Verifica la tua e-mail</h1>
+            <p>
+                Inserisci la tua e-mail, quindi clicca "Verifica e-mail".
+                <br>
+                Fatto ciò, ti arriverà una e-mail di verifica con il codice. Ogni codice scade entro 15 minuti.
+            </p>
+            <form action="/verify-email" method="POST">
+                <input type="email" name="email" placeholder="Esempio: john.doe@mail.com" required autocomplete="email">
+                <button type="submit">Verifica e-mail.</button>
+            </form>
+        </div>
+    </body>
 </html>
