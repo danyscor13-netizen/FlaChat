@@ -683,6 +683,63 @@ a { color: var(--accent); text-underline-offset: 3px; }
     color: var(--text);
 }
 
+/* ---------- Pannello profilo ---------- */
+
+.profilo-meta {
+    margin: 0 0 12px !important;
+    color: var(--muted);
+    font-family: var(--font-mono);
+    font-size: 0.72rem !important;
+}
+
+.profilo-bio {
+    margin: 0 0 4px !important;
+    padding: 10px 12px;
+    background: var(--surface-2);
+    border-left: 2px solid var(--line);
+    border-radius: 0 var(--radius) var(--radius) 0;
+    color: var(--text) !important;
+    font-size: 0.9rem !important;
+    white-space: pre-wrap;
+    overflow-wrap: break-word;
+}
+
+.profilo-bio.vuota {
+    color: var(--muted) !important;
+    font-style: italic;
+}
+
+.profilo-ruoli {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
+    margin-bottom: 16px;
+}
+
+.profilo-ruolo {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 3px 8px;
+    background: var(--surface-2);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    font-family: var(--font-mono);
+    font-size: 0.76rem;
+}
+
+/* il primo è quello che si vede accanto ai messaggi */
+.profilo-ruolo.principale { border-color: currentColor; }
+
+#user-list li.cliccabile { cursor: pointer; }
+
+/* textarea della bio */
+textarea {
+    min-height: 90px;
+    font-family: var(--font-body);
+    resize: vertical;
+}
+
 /* ---------- Lobby: elenco stanze ---------- */
 
 .section-label {
@@ -1141,22 +1198,4 @@ a { color: var(--accent); text-underline-offset: 3px; }
         align-items: flex-start;
         gap: 4px;
     }
-}
-
-.small,
-.btn-secondary-small {
-    width: auto;
-    padding: 7px 12px;
-    font-size: 13px;
-}
-
-.btn-secondary-small {
-    background: var(--surface-2);
-    color: var(--text);
-    border: 1px solid var(--line);
-}
-
-.btn-secondary-small:hover {
-    border-color: var(--accent-2);
-    color: var(--accent-2);
 }

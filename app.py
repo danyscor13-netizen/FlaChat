@@ -632,19 +632,13 @@ def profile():
             WHERE username=%s
         """, (username,)).fetchone()
 
-        def checkIfMail():
-            userMail = db.execute("""
-            select email 
-            from users 
-            where username = %s
-            """, (username,)).fetchone()
-
-            if not userMail:
-                return False
-            else:
-                return True
-
-        doesUserHaveMail = checkIfMail()
+        # La riga c'e' sempre (l'utente esiste): quello che puo'
+        # mancare e' il valore. Senza il secondo controllo questa
+        # funzione tornava sempre True.
+        r = uno(db, "SELECT email, is_email_verified FROM users WHERE id=%s",
+                (utente_corrente(),))
+        doesUserHaveMail = bool(r and r["email"])
+        mailVerificata = bool(r and r["is_email_verified"])
 
     if not user:
         return "Utente non trovato :(", 404
@@ -654,11 +648,17 @@ def profile():
         username=user["username"],
         bio=user["bio"],
         can_mod=can_mod,
-        doesUserHaveMail=doesUserHaveMail
+        doesUserHaveMail=doesUserHaveMail,
+        mailVerificata=mailVerificata
     )
 
 @app.route("/profile/<username>")
 def pub_profile(username):
+    # Un profilo non e' pubblico: senza questo chiunque, anche senza
+    # account, puo' sfogliare le bio di tutti gli iscritti.
+    if not utente_corrente():
+        return redirect(url_for("login"))
+
     can_mod = False
     with get_db() as db:
         user = db.execute("select username, bio from users where username = %s", (username,)).fetchone()
@@ -688,180 +688,236 @@ def vemail():
             return redirect(url_for("vemail"))
 
         with get_db() as db:
-            db.execute("""update users set email=%s, is_email_verified=false
-                where id=%s""", (mail, uid))
+            # Senza un tetto, chi conosce l'indirizzo di qualcuno puo'
+            # usare questa pagina per riempirgli la casella.
+            recenti = uno(db, """SELECT COUNT(*) AS n FROM verify_tokens
+                                 WHERE user_id=%s
+                                   AND created_at > now() - interval '1 hour'""",
+                          (uid,))["n"]
+            if recenti >= 3:
+                return render_template("ver-email.html",
+                                       errore="Troppe richieste. Riprova fra "
+                                              "un'ora.")
+
+            db.execute("""UPDATE users SET email=%s, is_email_verified=false
+                          WHERE id=%s""", (mail, uid))
 
             token = secrets.token_urlsafe(32)
 
-            db.execute("""
-                DELETE FROM verify_tokens
-                WHERE user_id=%s
-            """, (uid,))
+            # I token precedenti si chiudono invece di sparire: cosi'
+            # il conteggio qui sopra continua a funzionare e un link
+            # vecchio non vale piu'.
+            db.execute("""UPDATE verify_tokens SET used_at=now()
+                          WHERE user_id=%s AND used_at IS NULL""", (uid,))
 
-            db.execute("""insert into verify_tokens
-                        (user_id, email, token_hash, expires_at)
-                        values (%s, %s, %s, %s)""",
+            db.execute("""INSERT INTO verify_tokens
+                            (user_id, email, token_hash, expires_at)
+                          VALUES (%s, %s, %s, %s)""",
                         (uid, mail,
                          hashlib.sha256(token.encode()).hexdigest(),
                          ora() + timedelta(minutes=15)))
             db.commit()
 
         link = f"{request.url_root.rstrip('/')}/verify-email/{token}"
-        resend.api_key = os.environ.get("RESEND_API_KEY")
-        resend.Emails.send({
-            "from": "FlaChat <onboarding@resend.dev>",
-            "to": [mail],
-            "subject": "FlaChat - Conferma la tua e-mail",
-            "html": f"""
-                <style>
-                    @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=JetBrains+Mono:wght@400;700&display=swap');
-                </style>
 
-                <div style="
-                    margin: 0;
-                    padding: 40px 20px;
-                    background: #15121f;
-                    color: #efecf7;
-                    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
-                ">
+        # Senza chiave configurata il link finisce nei log: comodo in
+        # locale, e in produzione dice subito cosa manca.
+        if not os.environ.get("RESEND_API_KEY"):
+            print(f"\n>>> LINK DI VERIFICA (RESEND_API_KEY non impostata): {link}\n")
+            return render_template("ver-email.html", mail=mail, inviata=True)
+
+        resend.api_key = os.environ.get("RESEND_API_KEY")
+        try:
+            resend.Emails.send({
+                "from": "FlaChat <onboarding@resend.dev>",
+                "to": [mail],
+                "subject": "FlaChat - Conferma la tua e-mail",
+                "html": f"""
+                    <style>
+                        @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=JetBrains+Mono:wght@400;700&display=swap');
+                    </style>
 
                     <div style="
-                        max-width: 520px;
-                        margin: auto;
-                        padding: 32px;
-                        background: #1c1829;
-                        border: 1px solid #332b49;
-                        border-radius: 4px;
-                        box-shadow: 0 8px 30px rgba(0, 0, 0, 0.25);
+                        margin: 0;
+                        padding: 40px 20px;
+                        background: #15121f;
+                        color: #efecf7;
+                        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
                     ">
 
-                        <!-- Branding -->
                         <div style="
-                            margin-bottom: 24px;
-                            font-family: 'JetBrains Mono', 'Courier New', monospace;
-                            font-size: 17px;
-                            font-weight: 700;
-                            letter-spacing: -0.02em;
-                            color: #f2c14e;
-                        ">
-                            FlaChat
-                        </div>
-
-                        <!-- Title -->
-                        <h1 style="
-                            margin: 0 0 12px;
-                            font-family: 'Space Grotesk', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-                            font-size: 26px;
-                            line-height: 1.2;
-                            font-weight: 700;
-                            color: #efecf7;
-                        ">
-                            Conferma la tua e-mail
-                        </h1>
-
-                        <!-- Main text -->
-                        <p style="
-                            margin: 0 0 24px;
-                            color: #958dab;
-                            font-size: 15px;
-                            line-height: 1.65;
-                        ">
-                            Hai aggiunto l'indirizzo e-mail al tuo account.
-                            Verificalo per confermare che sia realmente tuo.
-                        </p>
-
-                        <!-- Additional information -->
-                        <div style="
-                            margin: 0 0 24px;
-                            padding: 14px 16px;
-                            background: #251f36;
-                            border-left: 3px solid #b98cff;
+                            max-width: 520px;
+                            margin: auto;
+                            padding: 32px;
+                            background: #1c1829;
+                            border: 1px solid #332b49;
                             border-radius: 4px;
+                            box-shadow: 0 8px 30px rgba(0, 0, 0, 0.25);
                         ">
+
+                            <!-- Branding -->
+                            <div style="
+                                margin-bottom: 24px;
+                                font-family: 'JetBrains Mono', 'Courier New', monospace;
+                                font-size: 17px;
+                                font-weight: 700;
+                                letter-spacing: -0.02em;
+                                color: #f2c14e;
+                            ">
+                                FlaChat
+                            </div>
+
+                            <!-- Title -->
+                            <h1 style="
+                                margin: 0 0 12px;
+                                font-family: 'Space Grotesk', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+                                font-size: 26px;
+                                line-height: 1.2;
+                                font-weight: 700;
+                                color: #efecf7;
+                            ">
+                                Conferma la tua e-mail
+                            </h1>
+
+                            <!-- Main text -->
+                            <p style="
+                                margin: 0 0 24px;
+                                color: #958dab;
+                                font-size: 15px;
+                                line-height: 1.65;
+                            ">
+                                Hai aggiunto l'indirizzo e-mail al tuo account.
+                                Verificalo per confermare che sia realmente tuo.
+                            </p>
+
+                            <!-- Additional information -->
+                            <div style="
+                                margin: 0 0 24px;
+                                padding: 14px 16px;
+                                background: #251f36;
+                                border-left: 3px solid #b98cff;
+                                border-radius: 4px;
+                            ">
+                                <p style="
+                                    margin: 0;
+                                    color: #958dab;
+                                    font-size: 13px;
+                                    line-height: 1.6;
+                                ">
+                                    L'e-mail ti servirà per recuperare il tuo account,
+                                    per esempio, se ti sei dimenticato la password.
+                                </p>
+
+                                <p style="
+                                    margin: 10px 0 0;
+                                    color: #efecf7;
+                                    font-size: 13px;
+                                    line-height: 1.6;
+                                ">
+                                    Non vorrai mica perdere accesso al tuo account...
+                                </p>
+                            </div>
+
+                            <!-- Verification button -->
+                            <a href="{link}" style="
+                                display: inline-block;
+                                padding: 12px 22px;
+                                background: #f2c14e;
+                                color: #1a1626;
+                                border-radius: 4px;
+                                text-decoration: none;
+                                font-family: 'Space Grotesk', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+                                font-size: 15px;
+                                font-weight: 700;
+                            ">
+                                Conferma e-mail
+                            </a>
+
+                            <!-- Expiration -->
+                            <div style="
+                                margin-top: 14px;
+                                color: #958dab;
+                                font-family: 'JetBrains Mono', 'Courier New', monospace;
+                                font-size: 11px;
+                            ">
+                                ⏱ Il link scade tra 15 minuti.
+                            </div>
+
+                            <!-- Divider -->
+                            <div style="
+                                height: 1px;
+                                margin: 28px 0 20px;
+                                background: #332b49;
+                            "></div>
+
+                            <!-- Security notice -->
                             <p style="
                                 margin: 0;
                                 color: #958dab;
-                                font-size: 13px;
-                                line-height: 1.6;
-                            ">
-                                L'e-mail ti servirà per recuperare il tuo account,
-                                per esempio, se ti sei dimenticato la password.
-                            </p>
-
-                            <p style="
-                                margin: 10px 0 0;
-                                color: #efecf7;
-                                font-size: 13px;
-                                line-height: 1.6;
-                            ">
-                                Non vorrai mica perdere accesso al tuo account...
-                            </p>
-                        </div>
-
-                        <!-- Verification button -->
-                        <a href="{link}" style="
-                            display: inline-block;
-                            padding: 12px 22px;
-                            background: #f2c14e;
-                            color: #1a1626;
-                            border-radius: 4px;
-                            text-decoration: none;
-                            font-family: 'Space Grotesk', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-                            font-size: 15px;
-                            font-weight: 700;
-                        ">
-                            Conferma e-mail
-                        </a>
-
-                        <!-- Expiration -->
-                        <div style="
-                            margin-top: 14px;
-                            color: #958dab;
-                            font-family: 'JetBrains Mono', 'Courier New', monospace;
-                            font-size: 11px;
-                        ">
-                            ⏱ Il link scade tra 15 minuti.
-                        </div>
-
-                        <!-- Divider -->
-                        <div style="
-                            height: 1px;
-                            margin: 28px 0 20px;
-                            background: #332b49;
-                        "></div>
-
-                        <!-- Security notice -->
-                        <p style="
-                            margin: 0;
-                            color: #958dab;
-                            font-size: 12px;
-                            line-height: 1.6;
-                        ">
-                            Se non hai aggiunto nessuna e-mail,
-                            puoi tranquillamente ignorare questa e-mail.
-                        </p>
-
-                        <!-- Signature -->
-                        <div style="
-                            margin-top: 22px;
-                            padding-top: 16px;
-                            border-top: 1px solid #332b49;
-                        ">
-                            <p style="
-                                margin: 0;
-                                font-family: 'JetBrains Mono', 'Courier New', monospace;
                                 font-size: 12px;
-                                font-weight: 700;
-                                color: #f2c14e;
+                                line-height: 1.6;
                             ">
-                                D.P. - FlaChat
+                                Se non hai aggiunto nessuna e-mail,
+                                puoi tranquillamente ignorare questa e-mail.
                             </p>
-                        </div>
 
+                            <!-- Signature -->
+                            <div style="
+                                margin-top: 22px;
+                                padding-top: 16px;
+                                border-top: 1px solid #332b49;
+                            ">
+                                <p style="
+                                    margin: 0;
+                                    font-family: 'JetBrains Mono', 'Courier New', monospace;
+                                    font-size: 12px;
+                                    font-weight: 700;
+                                    color: #f2c14e;
+                                ">
+                                    D.P. - FlaChat
+                                </p>
+                            </div>
+
+                        </div>
                     </div>
-                </div>
-            """
-        })
+                """
+                })
+        except Exception as e:
+            # se Resend e' irraggiungibile l'utente non deve vedere una
+            # pagina di errore: il token e' salvato, basta riprovare
+            print(f"Resend: invio fallito: {e}")
+            return render_template("ver-email.html", mail=mail,
+                                   errore="Non sono riuscito a mandare l'email. "
+                                          "Riprova fra poco.")
+
+    return render_template("ver-email.html")
+
+
+@app.route("/verify-email/<token>")
+def conferma_email(token):
+    """
+    Il link che arriva per email. Il token vale una volta sola e 15
+    minuti: qui si controlla che sia ancora buono e si segna l'indirizzo
+    come verificato.
+    """
+    with get_db() as db:
+        r = uno(db, """SELECT * FROM verify_tokens WHERE token_hash=%s""",
+                (hashlib.sha256(token.encode()).hexdigest(),))
+
+        if not r or r["used_at"] or r["expires_at"] < ora():
+            return render_template("ver-email.html", scaduto=True)
+
+        # L'indirizzo da confermare e' quello salvato nel token, non
+        # quello che c'e' adesso su users: fra l'invio e il clic la
+        # persona puo' averlo cambiato, e quel link vale per il vecchio.
+        db.execute("""UPDATE users SET email=%s, is_email_verified=true
+                      WHERE id=%s""", (r["email"], r["user_id"]))
+        db.execute("""UPDATE verify_tokens SET used_at=now()
+                      WHERE user_id=%s AND used_at IS NULL""", (r["user_id"],))
+        db.commit()
+
+    return render_template("ver-email.html", confermata=True, mail=r["email"])
+
 
 @app.route("/forgotpassword")
 def fpassword():
@@ -1041,6 +1097,46 @@ def api_role_icon(code):
         manda_utenti(space_id)
 
     return jsonify(ok=True, url=url)
+
+
+@app.route("/api/profilo/<code>/<username>")
+def api_profilo(code, username):
+    """Il profilo di un membro, per il pannello della lista membri."""
+    uid = utente_corrente()
+    if not uid:
+        abort(401)
+
+    with get_db() as db:
+        sp = uno(db, "SELECT id FROM spaces WHERE code=%s", (code,))
+        if not sp or not uno(db, """SELECT 1 FROM members
+                                    WHERE space_id=%s AND user_id=%s""",
+                             (sp["id"], uid)):
+            abort(403)
+
+        u = uno(db, """SELECT u.id, u.username, u.bio, m.joined_at
+                       FROM members m JOIN users u ON u.id=m.user_id
+                       WHERE m.space_id=%s AND lower(u.username)=%s""",
+                (sp["id"], (username or "").strip().lower()))
+        if not u:
+            return jsonify(error="Questa persona non e' nella stanza."), 404
+
+        ruoli = tutti(db, f"""SELECT r.name, r.color, {sel_icon()} AS icon
+                              FROM member_roles mr
+                              JOIN roles r ON r.id=mr.role_id
+                              WHERE mr.space_id=%s AND mr.user_id=%s
+                              ORDER BY r."position" DESC""",
+                      (sp["id"], u["id"]))
+
+    # L'email non esce mai da qui: e' un dato di recupero, non di
+    # profilo, e nessuno deve poterla leggere dalla lista membri.
+    return jsonify({
+        "username": u["username"],
+        "bio": (u["bio"] or "").strip(),
+        "dal": ts(u["joined_at"]),
+        "online": u["id"] in set(online.get(sp["id"], {}).values()),
+        "ruoli": [{"nome": r["name"], "colore": r["color"],
+                   "icona": url_icona(r["name"], r["icon"])} for r in ruoli],
+    })
 
 
 @app.route("/api/mentionables/<code>")

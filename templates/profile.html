@@ -24,9 +24,14 @@
                 >
                 <button type="submit">Salva</button>
             </form>
-            {% if doesUserHaveMail %}
+            {% if doesUserHaveMail and mailVerify %}
                 <br>
                 <p>Hai una e-mail collegata al tuo account.</p>
+            {% elif doesUserHaveMail %}
+                <p>
+                    Hai una email, ma non è verificata.<br>
+                    <a href="/verify-email">Verificala qui!</a>
+                </p>
             {% else %}
                 <br>
                 <p>Non hai una email. <a href="/verify-email">Aggiungila qui!</a></p>

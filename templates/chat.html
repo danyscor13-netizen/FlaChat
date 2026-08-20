@@ -10,6 +10,21 @@
 </head>
 <body>
 
+    <div id="profilo-box" class="modal" style="display:none;"
+         onclick="if (event.target === this) chiudiProfilo()">
+        <div class="modal-box">
+            <h3 id="profilo-nome"></h3>
+            <p id="profilo-meta" class="profilo-meta"></p>
+            <p id="profilo-bio" class="profilo-bio"></p>
+            <div class="section-label" id="profilo-ruoli-titolo"></div>
+            <div id="profilo-ruoli" class="profilo-ruoli"></div>
+            <div class="modal-actions">
+                <a class="button" id="profilo-link" href="#">Pagina completa</a>
+                <button class="btn-secondary" onclick="chiudiProfilo()">Chiudi</button>
+            </div>
+        </div>
+    </div>
+
     <div id="role-creator" class="modal" style="display:none;">
         <div class="modal-box">
             <h3><span id="role-creator-titolo">Crea ruolo</span>:
@@ -113,7 +128,7 @@
                 <small>
                     <a href="#" id="notif-btn" title="Notifiche">Notifiche</a> ·
                     <a href="#" id="stanza-btn" title="Impostazioni stanza">Stanza</a> ·
-                    <a href="/lobby">Stanze</a> · <a href="/logout">Esci</a>
+                    <a href="/profile">Profilo</a> · <a href="/lobby">Stanze</a> · <a href="/logout">Esci</a>
                 </small>
             </div>
 
@@ -480,7 +495,9 @@
             const li = document.createElement('li');
             if (!u.online) li.classList.add('offline');
             li.style.color = u.color;
-            li.title = u.role;
+            li.title = 'Vedi il profilo di ' + u.username;
+            li.classList.add('cliccabile');
+            li.onclick = function () { apriProfilo(u.username); };
             const icona = nodoIcona(u.role, u.icon);
             if (icona) li.appendChild(icona);
             const n = document.createElement('span');
@@ -1151,6 +1168,70 @@
             document.getElementById('perms-stato').textContent =
                 r.errore || 'Modifica non riuscita.';
         }
+    }
+
+    /* ---------- profilo di un membro ---------- */
+
+    function apriProfilo(nome) {
+        const box = document.getElementById('profilo-box');
+        document.getElementById('profilo-nome').textContent = nome;
+        document.getElementById('profilo-meta').textContent = 'Carico...';
+        document.getElementById('profilo-bio').textContent = '';
+        document.getElementById('profilo-ruoli').innerHTML = '';
+        document.getElementById('profilo-ruoli-titolo').textContent = '';
+        document.getElementById('profilo-link').href =
+            '/profile/' + encodeURIComponent(nome);
+        box.style.display = 'flex';
+
+        fetch('/api/profilo/' + code + '/' + encodeURIComponent(nome))
+            .then(function (r) { return r.json(); })
+            .then(function (d) {
+                if (d.error) {
+                    document.getElementById('profilo-meta').textContent = d.error;
+                    return;
+                }
+                disegnaProfilo(d);
+            })
+            .catch(function () {
+                document.getElementById('profilo-meta').textContent =
+                    'Non sono riuscito a caricare il profilo.';
+            });
+    }
+
+    function disegnaProfilo(d) {
+        const dal = d.dal
+            ? new Date(d.dal * 1000).toLocaleDateString('it-IT',
+                  { day: 'numeric', month: 'long', year: 'numeric' })
+            : null;
+        document.getElementById('profilo-meta').textContent =
+            (d.online ? 'Online' : 'Non in linea')
+            + (dal ? ' · nella stanza dal ' + dal : '');
+
+        /* bio scritta dall'utente: textContent, mai innerHTML */
+        const bio = document.getElementById('profilo-bio');
+        bio.textContent = d.bio || 'Nessuna bio.';
+        bio.classList.toggle('vuota', !d.bio);
+
+        const ruoli = d.ruoli || [];
+        document.getElementById('profilo-ruoli-titolo').textContent =
+            ruoli.length === 1 ? '1 ruolo' : ruoli.length + ' ruoli';
+
+        const cont = document.getElementById('profilo-ruoli');
+        cont.innerHTML = '';
+        ruoli.forEach(function (r, i) {
+            const el = document.createElement('span');
+            el.className = 'profilo-ruolo' + (i === 0 ? ' principale' : '');
+            el.style.color = r.colore;
+            if (i === 0) el.title = 'Ruolo principale';
+            const ic = nodoIcona(r.nome, r.icona);
+            if (ic) el.appendChild(ic);
+            el.appendChild(document.createTextNode(r.nome));
+            cont.appendChild(el);
+        });
+    }
+
+    function chiudiProfilo() {
+        document.getElementById('profilo-box').style.display = 'none';
     }
 
     /* ---------- creazione ruolo ---------- */
